@@ -51,18 +51,6 @@ What helped:
 
 - Add `altair` to project dependencies and sync lock/env.
 
-### Marimo launch target mismatch after app relocation
-
-Symptoms:
-
-- `uv run marimo run coherenceSimulator.py` fails because file is removed or not a valid marimo app
-
-What helped:
-
-- Launch the active app entrypoint:
-  - `uv run marimo run apps/coherence_app.py`
-  - `uv run marimo edit apps/coherence_app.py`
-
 ### jsPsych assets blocked or unresolved in iframe runner
 
 Symptoms:
@@ -80,31 +68,5 @@ What helped:
   - `https://cdn.jsdelivr.net/npm/jspsych@7.3.4/dist/index.browser.js`
   - `https://cdn.jsdelivr.net/npm/@jspsych/plugin-html-keyboard-response@1.1.3/dist/index.browser.js`
   - `https://cdn.jsdelivr.net/npm/@jspsych/plugin-html-button-response@1.1.3/dist/index.browser.js`
-- Keep a visible error message in runner HTML when `initJsPsych` is unavailable.
 
-### Python f-string / embedded JavaScript syntax conflicts
-
-Symptoms:
-
-- marimo cell import fails with Python `SyntaxError` pointing at JavaScript lines in `runtime/jspsych_runner.py`.
-
-What helped:
-
-- Avoid large JavaScript blobs inside Python f-strings.
-- Use a plain triple-quoted template and inject dynamic values with placeholder replacement.
-
-### jsPsych dynamic hooks and key handling issues
-
-Symptoms:
-
-- motion canvas not animating during trials
-- right/left key correctness not matching expected response
-- arrow keys scroll page/iframe or behave inconsistently before clicking
-
-What helped:
-
-- Revive function-valued trial hooks (`on_finish`, `on_start`, `on_load`, `stimulus`) in runner timeline decoding.
-- Start animation from `on_load` through a shared runner helper (`window.__startAllMotionCanvases`).
-- Compare keys via `jsPsych.pluginAPI.compareKeys(...)` instead of raw string equality.
-- Arm keyboard input on pointer interaction with the runner and prevent default arrow-key scrolling.
 

@@ -1,11 +1,11 @@
 ## Simulator
 
-This project contains a small interactive tutorial written as a `marimo` app.
+This project provides an experiment-to-hssm pipeline. Demos are currently made as `marimo` apps.
 
 It is organized as a modular workflow that combines:
 
-- a participant-like jsPsych motion-coherence demo (embedded in the app),
-- a virtual-observer simulation pipeline for synthetic datasets, and
+- a motion coherence experiment simulator jsPsych demo (embedded in the app)
+- simulation and HSSM fitting controls for iterative workflow
 - an HSSM analysis stage with behavior summaries and plots.
 
 ### Run
@@ -25,7 +25,8 @@ uv run marimo edit apps/coherence_app.py
 ### Notes
 
 - The tutorial simulates a **binary left/right motion task** for multiple observers and trials using **jsPsych-style** trial objects in Python; motion previews use **Canvas** in the browser.
-- It then fits a DDM to the simulated data using `hssm`.
+- HSSM fitting is triggered with a dedicated **Run hssm fit** button after simulation.
+- The end-of-pipeline model visualization uses `hssm.plotting.plot_model_cartoon`.
 
 ### Project docs
 

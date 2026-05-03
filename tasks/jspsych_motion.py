@@ -17,9 +17,8 @@ class JsPsychTrialEngine:
 
     def make_trials(self, stim_level: float, n_trials: int) -> list[JsPsychTrial]:
         n = int(n_trials)
-        half = n // 2
-        dirs = [-1] * half + [1] * (n - half)
-        self.rng.shuffle(dirs)
+        # Independent random left/right on each trial (unbiased over many trials).
+        dirs = self.rng.choice([-1, 1], size=n)
 
         level = float(stim_level)
         trials: list[JsPsychTrial] = []
@@ -27,8 +26,9 @@ class JsPsychTrialEngine:
             stim_dir = int(d)
             # Binary discrimination special-case (n=2 alternatives):
             # index 0 -> left option, index 1 -> right option.
-            # Stim array can be generalized to any n alternatives.
-            stim = [-1.0, 1.0]
+            # Use equal base stimulus weights and encode side-specific strength
+            # in stim_levels so argmax maps cleanly to the correct side.
+            stim = [1.0, 1.0]
             stim_levels = [level, 0.0] if stim_dir == -1 else [0.0, level]
             correct_index = 0 if stim_dir == -1 else 1
             correct_key = "ArrowLeft" if correct_index == 0 else "ArrowRight"

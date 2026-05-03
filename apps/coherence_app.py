@@ -37,7 +37,6 @@ def _():
     from analysis.hssm_pipeline import (
         fit_hssm_model,
         summarize_behavior,
-        summarize_drift_posterior_hssm_api,
         summarize_posterior,
     )
     from renderers.jspsych_preview import motion_coherence_preview_iframe_html
@@ -51,7 +50,6 @@ def _():
         fit_hssm_model,
         motion_coherence_preview_iframe_html,
         summarize_behavior,
-        summarize_drift_posterior_hssm_api,
         summarize_posterior,
     )
 
@@ -62,7 +60,7 @@ def _(mo):
         r"""
 ## HSSM demonstration with motion coherence simulated experiment
 
-This app simulates a **binary left/right motion task** at **three stimulus levels** shown side-by-side.
+This app simulates a **binary left/right motion task** at **three stimulus levels** you set with the sliders (shown side-by-side).
 
 - **Observer**: n-AFC virtual observer with **stimulus-level dependent Gaussian noise** plus lapse noise.
 - **Task**: trials use **jsPsych-style** objects generated in Python; jsPsych can execute these trials directly in-browser.
@@ -74,8 +72,6 @@ This app simulates a **binary left/right motion task** at **three stimulus level
 
 @app.cell
 def _(build_jspsych_runner_html):
-    DEMO_LEVELS = [("A", 0.2), ("B", 0.5), ("C", 0.8), ("A", 0.2), ("B", 0.5), ("C", 0.8)]
-
     intro_trial = {
         "type": "html-button-response",
         "stimulus": (
@@ -107,16 +103,22 @@ def _(build_jspsych_runner_html):
             "const n = d.length;"
             "const c = d.filter(x => x.correct).length;"
             "return `<div style=\"font-size:24px;line-height:1.6;text-align:center;\">"
-            "Your accuracy was ${c} / ${n}<br/>check out the simulated experiment below."
+            "Your accuracy was ${c} / ${n}<br/>"
+            "Check out the simulated experiment below.<br/><br/>"
+            "<span style=\"font-size:18px;color:#444;\">"
+            "Press any key to finish, then use <b>Restart demo</b> under the demo to run again."
+            "</span>"
             "</div>`;"
             "}"
         ),
         "choices": "ALL_KEYS",
     }
 
-    def build_demo_timeline(engine: object) -> list[dict[str, object]]:
+    def build_demo_timeline(
+        engine: object, demo_levels: list[tuple[str, float]]
+    ) -> list[dict[str, object]]:
         demo_trials: list[dict] = []
-        for idx, (label, level) in enumerate(DEMO_LEVELS, start=1):
+        for idx, (label, level) in enumerate(demo_levels, start=1):
             trial = engine.make_trials(stim_level=level, n_trials=1)[0]
             trial["data"]["label"] = label
             trial["data"]["trial_num"] = idx
@@ -141,13 +143,82 @@ def _(build_jspsych_runner_html):
 
 
 @app.cell
-def _(JsPsychTrialEngine, build_demo_timeline, mo, render_runner_iframe):
+def _(mo):
+    demo_restart = mo.ui.refresh(label="Restart demo")
+    return demo_restart
+
+
+@app.cell
+def _(
+    JsPsychTrialEngine,
+    build_demo_timeline,
+    demo_restart,
+    lvl1,
+    lvl2,
+    lvl3,
+    mo,
+    render_runner_iframe,
+):
+    _ = demo_restart.value
+    a = max(0.0, min(1.0, float(lvl1.value)))
+    b = max(0.0, min(1.0, float(lvl2.value)))
+    c = max(0.0, min(1.0, float(lvl3.value)))
+    demo_levels = [
+        ("A", a),
+        ("B", b),
+        ("C", c),
+        ("A", a),
+        ("B", b),
+        ("C", c),
+    ]
     demo_engine = JsPsychTrialEngine()
-    demo_timeline = build_demo_timeline(demo_engine)
+    demo_timeline = build_demo_timeline(demo_engine, demo_levels)
     demo_iframe = mo.Html(render_runner_iframe(demo_timeline, title="jsPsych Demo", height=280))
-    mo.vstack([mo.md("### Demonstration"), demo_iframe], gap=0.5)
+    mo.vstack(
+        [
+            mo.md("### Demonstration"),
+            demo_iframe,
+            demo_restart,
+            mo.md(
+                "_Coherence levels match **Stim Level A / B / C** above (two blocks A→C). "
+                "Motion direction is random each trial. "
+                "After the summary screen, click **Restart demo** for a new run._"
+            ),
+        ],
+        gap=0.5,
+    )
     return
 
+@app.cell
+def _(lvl1, lvl2, lvl3, mo, motion_coherence_preview_iframe_html):
+    def preview(stim_level: float, label: str):
+        html = motion_coherence_preview_iframe_html(
+            float(stim_level),
+            instance_label=label,
+            n_dots=20,
+            duration_s=5.0,
+            seed=42,
+        )
+        return mo.Html(html)
+
+    panel = mo.vstack(
+        [mo.vstack(
+            [mo.md("### Stimulus Selection for Simulation")],
+            gap=0.5,
+        ),
+        mo.hstack(
+            [
+                mo.vstack([preview(lvl1.value, "A"), lvl1], gap=0.4),
+                mo.vstack([preview(lvl2.value, "B"), lvl2], gap=0.4),
+                mo.vstack([preview(lvl3.value, "C"), lvl3], gap=0.4),
+            ],
+            gap=1.2,
+        ),
+        ],
+        gap=0.5,
+    )
+    panel
+    return
 
 @app.cell
 def _(mo):
@@ -155,39 +226,23 @@ def _(mo):
     lvl2 = mo.ui.slider(0.0, 1.0, value=0.5, step=0.05, label="Stim Level B")
     lvl3 = mo.ui.slider(0.0, 1.0, value=0.8, step=0.05, label="Stim Level C")
 
-    n_trials = mo.ui.slider(20, 2000, value=200, step=20, label="Trials per stim level")
+    n_trials = mo.ui.slider(10, 300, value=100, step=10, label="Trials per stim level")
     n_observers = mo.ui.slider(1, 30, value=3, step=1, label="Observers")
 
-    sigma0 = mo.ui.slider(0.05, 10.0, value=0.9, step=0.05, label="Stimulus-dependent noise (Higher value means more noise for lower coherence levels)")
-    lapse = mo.ui.slider(0.0, 0.2, value=0.02, step=0.005, label="Lapse rate")
+    sigma0 = mo.ui.slider(0.0, 2.0, value=0.0, step=0.05, label="Sigma0 (noise floor)")
+    sigma_scale = mo.ui.slider(0.0, 10.0, value=0.9, step=0.05, label="Sigma scale")
+    lapse = mo.ui.slider(0.0, 0.2, value=0.0, step=0.005, label="Lapse rate")
 
     ndt = mo.ui.slider(0.05, 1.0, value=0.30, step=0.01, label="Non-decision time (s)")
-    rt_scale = mo.ui.slider(0.05, 2.0, value=0.65, step=0.05, label="RT scale")
-    rt_noise = mo.ui.slider(0.0, 0.5, value=0.05, step=0.01, label="RT noise (s)")
+    rt_scale = mo.ui.slider(0.05, 1.0, value=0.35, step=0.05, label="RT scale")
+    rt_noise = mo.ui.slider(0.0, 0.2, value=0.03, step=0.01, label="RT noise (s)")
 
-    auto_run = mo.ui.checkbox(value=False, label="Auto-run (rerun on slider changes)")
-    run_sim = mo.ui.run_button(kind="success", label="Run simulation + fit")
+    run_sim = mo.ui.run_button(label="Run simulation")
 
     fit_draws = mo.ui.slider(100, 2000, value=600, step=100, label="HSSM draws")
     fit_tune = mo.ui.slider(100, 2000, value=600, step=100, label="HSSM tune")
     fit_chains = mo.ui.slider(1, 4, value=2, step=1, label="HSSM chains")
-
-    controls = mo.vstack(
-        [
-            mo.md("### Controls"),
-            mo.md("#### Motion preview (Canvas, 20 dots; jsPsych-style RDK logic)"),
-            mo.hstack([n_trials, n_observers], gap=1),
-            mo.hstack([sigma0, lapse], gap=1),
-            mo.hstack([ndt, rt_scale, rt_noise], gap=1),
-            mo.hstack([auto_run, run_sim], gap=1),
-            mo.md("### Fit settings (HSSM / PyMC)"),
-            mo.hstack([fit_draws, fit_tune, fit_chains], gap=1),
-        ],
-        gap=0.6,
-    )
-    controls
     return (
-        auto_run,
         lvl1,
         lvl2,
         lvl3,
@@ -202,38 +257,49 @@ def _(mo):
         rt_scale,
         run_sim,
         sigma0,
+        sigma_scale,
     )
 
 
 @app.cell
-def _(lvl1, lvl2, lvl3, mo, motion_coherence_preview_iframe_html):
-    def preview(stim_level: float, label: str):
-        html = motion_coherence_preview_iframe_html(
-            float(stim_level),
-            instance_label=label,
-            n_dots=20,
-            duration_s=5.0,
-            seed=42,
-        )
-        return mo.Html(html)
+def _(
+    fit_chains,
+    fit_draws,
+    fit_tune,
+    lapse,
+    mo,
+    n_observers,
+    n_trials,
+    ndt,
+    rt_noise,
+    rt_scale,
+    run_sim,
+    sigma0,
+    sigma_scale,
+):
+    run_fit = mo.ui.run_button(label="Run hssm fit", disabled=not bool(run_sim.value))
 
-    panel = mo.hstack(
+    controls = mo.vstack(
         [
-            mo.vstack([preview(lvl1.value, "A"), lvl1], gap=0.4),
-            mo.vstack([preview(lvl2.value, "B"), lvl2], gap=0.4),
-            mo.vstack([preview(lvl3.value, "C"), lvl3], gap=0.4),
+            mo.md("### Simulated Observer Settings"),
+            mo.hstack([n_trials, n_observers], gap=1),
+            mo.hstack([sigma0, sigma_scale, lapse], gap=1),
+            mo.hstack([ndt, rt_scale, rt_noise], gap=1),
+            mo.hstack([run_sim], gap=1),
+            mo.md("### HSSM Fit Settings"),
+            mo.hstack([fit_draws, fit_tune, fit_chains], gap=1),
+            mo.hstack([run_fit], gap=1),
         ],
-        gap=1.2,
+        gap=0.6,
     )
-    panel
-    return
+    controls
+    return run_fit
 
 
 @app.cell
 def _(
     JsPsychTrialEngine,
     NAfcObserver,
-    auto_run,
     lvl1,
     lvl2,
     lvl3,
@@ -248,8 +314,9 @@ def _(
     rt_scale,
     run_sim,
     sigma0,
+    sigma_scale,
 ):
-    mo.stop(not (auto_run.value or run_sim.value))
+    mo.stop(not run_sim.value)
 
     stim_levels = [float(lvl1.value), float(lvl2.value), float(lvl3.value)]
     stim_levels = [max(0.0, c) for c in stim_levels]
@@ -263,20 +330,23 @@ def _(
     rows: list[dict] = []
     for subj in range(nS):
         obs_rng = np.random.default_rng(rng.integers(0, 2**32 - 1))
-        obs = NAfcObserver(sigma0=float(sigma0.value), lapse_rate=float(lapse.value), rng=obs_rng)
+        obs = NAfcObserver(
+            sigma0=float(sigma0.value),
+            sigma_scale=float(sigma_scale.value),
+            lapse_rate=float(lapse.value),
+            rt_scale=float(rt_scale.value),
+            rt_noise=float(rt_noise.value),
+            rng=obs_rng,
+        )
         for level in stim_levels:
             trials = sim.make_trials(stim_level=level, n_trials=nT)
             for tr in sim.iter_trials(trials):
-                choice_index = obs.choose(stim=tr["stim"], stim_levels=tr["stim_levels"])
-                response = -1 if int(choice_index) == 0 else 1
-                rt = obs.rt(
-                    choice_index=choice_index,
+                choice_index, rt = obs.choose(
                     stim=tr["stim"],
                     stim_levels=tr["stim_levels"],
                     ndt=float(ndt.value),
-                    rt_scale=float(rt_scale.value),
-                    rt_noise=float(rt_noise.value),
                 )
+                response = -1 if int(choice_index) == 0 else 1
                 rows.append(
                     dict(
                         subj=subj,
@@ -335,7 +405,9 @@ def _(by, mo):
 
 
 @app.cell
-def _(df, fit_chains, fit_draws, fit_tune, mo, fit_hssm_model, summarize_posterior):
+def _(df, fit_chains, fit_draws, fit_tune, mo, fit_hssm_model, run_fit, summarize_posterior):
+    mo.stop(not run_fit.value)
+
     header = mo.md("### HSSM fit (DDM drift depends on stim level)")
     model, idata = fit_hssm_model(
         df,
@@ -343,58 +415,90 @@ def _(df, fit_chains, fit_draws, fit_tune, mo, fit_hssm_model, summarize_posteri
         tune=int(fit_tune.value),
         chains=int(fit_chains.value),
     )
-    try:
-        summ = summarize_posterior(idata)
-        summary_block = mo.vstack(
-            [
-                mo.md("#### Posterior summary"),
-                mo.Html(summ.to_html(classes="dataframe")),
-            ],
-            gap=0.5,
+    summ = summarize_posterior(idata)
+    _blocks = [mo.md("#### Posterior summary"), mo.Html(summ.to_html(classes="dataframe"))]
+    if int(fit_chains.value) < 2:
+        _blocks.append(
+            mo.Html(
+                '<div style="font-size:0.85rem;color:#92400e;margin-top:0.15rem;">'
+                "Note: convergence diagnostics like <code>r_hat</code> require at least 2 chains; "
+                "current fit used 1 chain."
+                "</div>"
+            )
         )
-    except Exception:
-        summary_block = mo.md("Fit completed (could not compute ArviZ summary).").callout(kind="warn")
+    summary_block = mo.vstack(_blocks, gap=0.5)
     mo.vstack([header, summary_block], gap=0.75)
     return model, idata
 
 
 @app.cell
-def _(by, idata, mo, model, summarize_drift_posterior_hssm_api):
-    import altair as _alt
+def _(df, idata, mo, model):
+    import base64 as _base64
+    import io as _io
 
-    try:
-        _drift_df = summarize_drift_posterior_hssm_api(
-            model,
-            idata,
-            by["stim_level"].tolist(),
-            prob=0.95,
-        )
-        _band = (
-            _alt.Chart(_drift_df)
-            .mark_area(opacity=0.22, color="#2563eb")
-            .encode(
-                x=_alt.X("stim_level:Q", title="Stimulus level"),
-                y=_alt.Y("v_lo:Q", title="Drift rate (v)"),
-                y2="v_hi:Q",
-                tooltip=["stim_level:Q", "v_lo:Q", "v_hi:Q"],
+    import hssm.plotting as _hplot
+    _idata_pp = model.sample_posterior_predictive(
+        idata=idata,
+        inplace=False,
+        include_group_specific=False,
+        kind="response",
+    )
+    _ax_or_grid = _hplot.plot_model_cartoon(
+        model,
+        idata=_idata_pp,
+        data=df,
+        predictive_group="posterior_predictive",
+        plot_data=True,
+        n_samples=20,
+        plot_predictive_samples=True,
+        bins=100,
+        title="HSSM Model Cartoon",
+        xlabel="Response time",
+    )
+
+    if isinstance(_ax_or_grid, list) and _ax_or_grid:
+        _obj = _ax_or_grid[0]
+    else:
+        _obj = _ax_or_grid
+
+    _fig = getattr(_obj, "figure", None)
+    if _fig is None:
+        _fig = getattr(_obj, "fig", None)
+    if _fig is None and hasattr(_obj, "get_figure"):
+        _fig = _obj.get_figure()
+    if _fig is None:
+        raise TypeError(f"Unexpected plot object type: {type(_obj)}")
+    _w, _h = _fig.get_size_inches()
+    _scale = 2.0 / 3.0
+    _fig.set_size_inches(max(1.5, _w * _scale), max(1.0, _h * _scale))
+    for _ax in _fig.axes:
+        _ax.title.set_fontsize(max(6, _ax.title.get_fontsize() * _scale))
+        _ax.xaxis.label.set_fontsize(max(6, _ax.xaxis.label.get_fontsize() * _scale))
+        _ax.yaxis.label.set_fontsize(max(6, _ax.yaxis.label.get_fontsize() * _scale))
+        _ax.tick_params(axis="both", labelsize=max(6, 10 * _scale))
+        _legend = _ax.get_legend()
+        if _legend is not None:
+            _legend.set_title(
+                _legend.get_title().get_text(),
+                prop={"size": max(6, 10 * _scale)},
             )
-        )
-        _line = (
-            _alt.Chart(_drift_df)
-            .mark_line(color="#1d4ed8", strokeWidth=2.5, point=True)
-            .encode(
-                x=_alt.X("stim_level:Q", title="Stimulus level"),
-                y=_alt.Y("v_mean:Q", title="Drift rate (v)"),
-                tooltip=["stim_level:Q", "v_mean:Q", "v_median:Q"],
-            )
-        )
-        _chart = mo.ui.altair_chart((_band + _line).properties(width=520, height=260))
-        _out = mo.vstack([mo.md("### HSSM drift posterior"), _chart], gap=0.5)
-    except Exception as e:
-        _out = mo.md(
-            "Could not build drift posterior plot from fit output.\n\n"
-            f"Reason: `{type(e).__name__}: {e}`"
-        ).callout(kind="warn")
+            for _txt in _legend.get_texts():
+                _txt.set_fontsize(max(6, _txt.get_fontsize() * _scale))
+            _legend.borderpad *= _scale
+            _legend.labelspacing *= _scale
+            _legend.handlelength *= _scale
+            _legend.handletextpad *= _scale
+            _legend.borderaxespad *= _scale
+
+    _buf = _io.BytesIO()
+    _fig.savefig(_buf, format="png", dpi=150, bbox_inches="tight")
+    _buf.seek(0)
+    _b64 = _base64.b64encode(_buf.read()).decode("ascii")
+    _img = mo.Html(
+        f'<img alt="HSSM model cartoon" src="data:image/png;base64,{_b64}" '
+        'style="width:50%;max-width:50%;height:auto;border:1px solid #ddd;border-radius:6px;" />'
+    )
+    _out = mo.vstack([mo.md("### HSSM model cartoon"), _img], gap=0.5)
     _out
     return
 

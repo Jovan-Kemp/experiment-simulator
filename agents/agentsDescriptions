@@ -1,0 +1,46 @@
+NAfcObserver: decision and reaction-time calculations
+
+Overview
+- The observer takes `stim`, `stim_levels`, and `ndt` for each trial.
+- Output is a tuple: `(choice_index, rt)`.
+- Decision and non-lapse RT are built from the same latent utility vector.
+
+1) Sensory noise
+- Sensory sigma is computed as:
+  sigma = sigma0 + sigma_scale * c
+  where c = max(0, stim_level)
+- In the default signal model, `stim_level` is set to difficulty:
+  c = 1 - coherence, where coherence = max(stim_levels)
+- This means lower coherence produces larger sensory noise.
+
+2) Utility (latent signal)
+- Default utility for each alternative i:
+  utility[i] = stim[i] * stim_levels[i] + Normal(0, sigma)
+- A custom utility model can be injected via `signal_model(observer, stim_arr, level_arr)`.
+
+3) Choice rule
+- First, a lapse check is sampled:
+  if random() < lapse_rate -> choose a random index
+- If no lapse:
+  - 1-stimulus case: choice is present/absent based on utility[0] > 0
+  - n-AFC (n > 1): choose argmax(utility)
+
+4) Reaction time (non-lapse)
+- Compute a decision margin:
+  - 1-stimulus: margin = abs(utility[0])
+  - n-AFC: margin = chosen_utility - max(other_utilities)
+- Evidence is absolute margin:
+  evidence = abs(margin)
+- Base RT:
+  base = ndt + rt_scale / evidence
+- Add Gaussian RT noise:
+  rt = base + Normal(0, rt_noise)
+
+5) Reaction time (lapse)
+- Lapse RT is independent of utility:
+  base = ndt + rt_scale
+  rt = max(0.05, base + Normal(0, rt_noise))
+
+Notes
+- Non-lapse RT currently has no lower/upper clamp and can become very large when evidence is very small.
+- Lapse RT has a lower floor of 0.05 seconds.

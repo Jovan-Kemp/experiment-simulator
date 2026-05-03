@@ -28,6 +28,7 @@ Current structure:
   - `jspsych_runner.py` - executable jsPsych runner page generator and browser-side trial runtime glue
 - `analysis/`
   - `hssm_pipeline.py` - fit/summarize helpers for HSSM analyses
+  - `descriptive_stats.py` - d-prime and standard error descriptive statistics helpers
 - `schemas/`
   - `contracts.py` - shared typed data contracts
 - `README.md` - quickstart and run instructions
@@ -45,9 +46,10 @@ Role:
 - assembles the end-to-end interactive workflow in marimo
 - includes an interactive participant-like demo block above controls
 - exposes UI controls for coherence/task/sampling settings
+- uses separate run controls for simulation and HSSM fit
 - renders task previews in the notebook UI
 - runs data simulation loops using trial and observer modules
-- executes HSSM model fitting and displays summaries/charts
+- executes HSSM model fitting and displays summaries/charts including an HSSM model cartoon plot
 
 Key integration boundaries:
 
@@ -89,6 +91,15 @@ Role:
 - models response policy, sensory uncertainty behavior, and lapse/random errors
 - can be expanded to host multiple observer families (simple heuristics, SSM-consistent agents, etc.)
 
+Current `NAfcObserver` behavior:
+
+- Latent utility defaults to `stim * stim_levels + Gaussian noise`.
+- Sensory noise uses `sigma = sigma0 + sigma_scale * c` where `c` is driven by task difficulty (`1 - coherence`, `coherence = max(stim_levels)`).
+- Lapse path is explicit: with probability `lapse_rate`, choice is random and RT is generated from lapse RT logic.
+- Non-lapse choice for n-AFC uses `argmax(utility)`; 1-stimulus mode uses sign-threshold detection.
+- Non-lapse RT uses evidence margin (`abs(chosen - max(other))` for n-AFC) with `rt = ndt + rt_scale / evidence + noise`.
+- Optional `signal_model` can override latent utility generation while preserving shared utility for choice and non-lapse RT.
+
 Why it exists:
 
 - clean separation between *task definition* and *response-generation policy*
@@ -117,17 +128,27 @@ Role:
 - hosts canvas animation bootstrap used by motion-trial stimuli
 - normalizes keyboard behavior for arrow-key task responses and posts results to parent
 
+### `analysis/descriptive_stats.py`
+
+Role:
+
+- provides descriptive statistics helpers independent of fitting pipeline
+- includes `dprime(...)` with mode-based inputs (`rates` or `counts`)
+- includes `standard_error(...)` with mode-based inputs (`values` or `percentages`)
+- keeps utility statistics separate from HSSM model-fitting code
+
 ## Runtime Flow
 
 Typical run path for the current demo:
 
 1. marimo app renders a participant-like jsPsych demo timeline (intro -> motion trials + feedback -> summary)
 2. marimo UI collects task and fit parameters for simulation mode
-3. trial generator creates balanced trial definitions
-4. observer model produces responses and RTs
+3. trial generator creates balanced left/right trial definitions with side-strength coding
+4. observer model builds latent utility, then generates choice and RT (with explicit lapse path)
 5. tabular data is assembled for modeling
-6. HSSM fit runs on prepared data
-7. summaries and charts are rendered in-app
+6. user triggers HSSM fit with dedicated run control
+7. HSSM fit runs on prepared data
+8. summaries and charts are rendered in-app (including model cartoon)
 
 ## Extension Guidelines
 
@@ -135,7 +156,7 @@ Use these boundaries when adding new functionality:
 
 - **New task types**: add simulator classes/functions under `tasks/`
 - **New stimuli modalities**: add preview/render helpers under `renderers/`
-- **New observer/input sources**: add classes under `agents/`
+- **New observer/input sources**: add classes under `agents/` and keep choice/RT coupled to the same latent signal model when possible
 - **New analysis models**: add model-specific fit/plot helpers under `analysis/`
 
 Prefer data contracts (plain dict/dataframe schemas) between modules over direct cross-calls to keep components interchangeable.
