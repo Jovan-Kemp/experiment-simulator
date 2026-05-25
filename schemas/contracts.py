@@ -13,8 +13,8 @@ class JsPsychTrialData(TypedDict):
 class JsPsychTrial(TypedDict):
     type: str
     stim_level: float
-    stim: list[float]
-    stim_levels: list[float]
+    evidence_weight: list[float]
+    stim_strengths: list[float]
     correct_index: int
     choices: list[str]
     correct_key: str
@@ -28,4 +28,9 @@ class SimulatedObservation(TypedDict):
     response: int  # binary mapping for current DDM pipeline
     rt: float
     correct: int
+
+
+class JsPsychResultsMessage(TypedDict):
+    type: str
+    rows: list[dict[str, object]]
 

@@ -33,161 +33,72 @@ def _():
         if (root / "agents").exists() and str(root) not in sys.path:
             sys.path.insert(0, str(root))
 
-    from agents.motion_observer import NAfcObserver
+    from agents.evidence_observer import NAfcObserver
     from analysis.hssm_pipeline import (
         fit_hssm_model,
         summarize_behavior,
         summarize_posterior,
     )
     from renderers.jspsych_preview import motion_coherence_preview_iframe_html
+    from runtime.embed import render_srcdoc_iframe
     from runtime.jspsych_runner import build_jspsych_runner_html
     from tasks.jspsych_motion import JsPsychTrialEngine
+    from tasks.timelines.motion_demo import (
+        build_motion_demo_levels,
+        build_motion_demo_timeline,
+        motion_demo_runner_config,
+    )
 
     return (
         JsPsychTrialEngine,
         NAfcObserver,
+        Path,
         build_jspsych_runner_html,
+        build_motion_demo_levels,
+        build_motion_demo_timeline,
         fit_hssm_model,
         motion_coherence_preview_iframe_html,
+        motion_demo_runner_config,
+        render_srcdoc_iframe,
         summarize_behavior,
         summarize_posterior,
     )
 
 
 @app.cell
-def _(mo):
-    mo.md(
+def _(Path, mo):
+    import base64
+
+    logo_path = Path(__file__).resolve().parents[1] / "assets" / "logo" / "hssm_white.png"
+    logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    logo_block = mo.Html(
+        f'<div style="background:#ffffff;padding:1rem 1.25rem;border-radius:8px;">'
+        f'<img alt="HSSM" src="data:image/png;base64,{logo_b64}" '
+        f'style="max-height:80px;width:auto;display:block;" />'
+        f"</div>"
+    )
+    intro = mo.md(
         r"""
 ## HSSM demonstration with motion coherence simulated experiment
 
-This app simulates a **binary left/right motion task** at **three stimulus levels** you set with the sliders (shown side-by-side).
+This app simulates a **binary left/right motion task** at **three coherence levels** (0–1, dimensionless) you set with the sliders (shown side-by-side).
 
 - **Observer**: n-AFC virtual observer with **stimulus-level dependent Gaussian noise** plus lapse noise.
 - **Task**: trials use **jsPsych-style** objects generated in Python; jsPsych can execute these trials directly in-browser.
-- **Fit**: fits a **HSSM** DDM with drift \(v\) regressed on `stim_level`.
+- **Fit**: fits a **HSSM** DDM with drift \(v\) regressed on coherence (`stim_level`, proportion).
 """
     )
+    mo.vstack([logo_block, intro], gap=0.75)
     return
-
-
-@app.cell
-def _(build_jspsych_runner_html):
-    intro_trial = {
-        "type": "html-button-response",
-        "stimulus": (
-            '<div style="font-size:20px;line-height:1.6;text-align:center;">'
-            "Press left arrow for motion to the left, and right arrow for motion to the right"
-            "</div>"
-        ),
-        "choices": ["click here to begin."],
-    }
-    feedback_trial = {
-        "type": "html-keyboard-response",
-        "stimulus": (
-            "function(){"
-            "const d = jsPsych.data.get().last(1).values()[0] || {};"
-            "const ok = !!d.correct;"
-            "const txt = ok ? 'Correct' : 'Incorrect';"
-            "const color = ok ? '#15803d' : '#dc2626';"
-            "return `<div style=\"font-size:30px;font-weight:700;color:${color};text-align:center;\">${txt}</div>`;"
-            "}"
-        ),
-        "choices": "NO_KEYS",
-        "trial_duration": 1000,
-    }
-    final_trial = {
-        "type": "html-keyboard-response",
-        "stimulus": (
-            "function(){"
-            "const d = jsPsych.data.get().filterCustom(x => x && x.task === 'motion_coherence').values();"
-            "const n = d.length;"
-            "const c = d.filter(x => x.correct).length;"
-            "return `<div style=\"font-size:24px;line-height:1.6;text-align:center;\">"
-            "Your accuracy was ${c} / ${n}<br/>"
-            "Check out the simulated experiment below.<br/><br/>"
-            "<span style=\"font-size:18px;color:#444;\">"
-            "Press any key to finish, then use <b>Restart demo</b> under the demo to run again."
-            "</span>"
-            "</div>`;"
-            "}"
-        ),
-        "choices": "ALL_KEYS",
-    }
-
-    def build_demo_timeline(
-        engine: object, demo_levels: list[tuple[str, float]]
-    ) -> list[dict[str, object]]:
-        demo_trials: list[dict] = []
-        for idx, (label, level) in enumerate(demo_levels, start=1):
-            trial = engine.make_trials(stim_level=level, n_trials=1)[0]
-            trial["data"]["label"] = label
-            trial["data"]["trial_num"] = idx
-            demo_trials.append(trial)
-        motion_trials = engine.to_jspsych_timeline(demo_trials, trial_duration_ms=None)
-        timeline: list[dict[str, object]] = [intro_trial]
-        for trial in motion_trials:
-            timeline.extend([trial, feedback_trial])
-        timeline.append(final_trial)
-        return timeline
-
-    def render_runner_iframe(timeline: list[dict[str, object]], *, title: str, height: int) -> str:
-        html = build_jspsych_runner_html(timeline, title=title)
-        srcdoc = html.replace("&", "&amp;").replace('"', "&quot;")
-        return (
-            f'<iframe title="{title}" srcdoc="{srcdoc}" '
-            f'width="100%" height="{int(height)}" '
-            'style="border:1px solid #ddd;border-radius:6px;"></iframe>'
-        )
-
-    return build_demo_timeline, render_runner_iframe
 
 
 @app.cell
 def _(mo):
-    demo_restart = mo.ui.refresh(label="Restart demo")
-    return demo_restart
+    lvl1 = mo.ui.slider(0.0, 1.0, value=0.2, step=0.05, label="Coherence A (proportion)")
+    lvl2 = mo.ui.slider(0.0, 1.0, value=0.5, step=0.05, label="Coherence B (proportion)")
+    lvl3 = mo.ui.slider(0.0, 1.0, value=0.8, step=0.05, label="Coherence C (proportion)")
+    return lvl1, lvl2, lvl3
 
-
-@app.cell
-def _(
-    JsPsychTrialEngine,
-    build_demo_timeline,
-    demo_restart,
-    lvl1,
-    lvl2,
-    lvl3,
-    mo,
-    render_runner_iframe,
-):
-    _ = demo_restart.value
-    a = max(0.0, min(1.0, float(lvl1.value)))
-    b = max(0.0, min(1.0, float(lvl2.value)))
-    c = max(0.0, min(1.0, float(lvl3.value)))
-    demo_levels = [
-        ("A", a),
-        ("B", b),
-        ("C", c),
-        ("A", a),
-        ("B", b),
-        ("C", c),
-    ]
-    demo_engine = JsPsychTrialEngine()
-    demo_timeline = build_demo_timeline(demo_engine, demo_levels)
-    demo_iframe = mo.Html(render_runner_iframe(demo_timeline, title="jsPsych Demo", height=280))
-    mo.vstack(
-        [
-            mo.md("### Demonstration"),
-            demo_iframe,
-            demo_restart,
-            mo.md(
-                "_Coherence levels match **Stim Level A / B / C** above (two blocks A→C). "
-                "Motion direction is random each trial. "
-                "After the summary screen, click **Restart demo** for a new run._"
-            ),
-        ],
-        gap=0.5,
-    )
-    return
 
 @app.cell
 def _(lvl1, lvl2, lvl3, mo, motion_coherence_preview_iframe_html):
@@ -195,57 +106,130 @@ def _(lvl1, lvl2, lvl3, mo, motion_coherence_preview_iframe_html):
         html = motion_coherence_preview_iframe_html(
             float(stim_level),
             instance_label=label,
-            n_dots=20,
+            n_dots=80,
             duration_s=5.0,
             seed=42,
         )
         return mo.Html(html)
 
     panel = mo.vstack(
-        [mo.vstack(
-            [mo.md("### Stimulus Selection for Simulation")],
-            gap=0.5,
-        ),
-        mo.hstack(
-            [
-                mo.vstack([preview(lvl1.value, "A"), lvl1], gap=0.4),
-                mo.vstack([preview(lvl2.value, "B"), lvl2], gap=0.4),
-                mo.vstack([preview(lvl3.value, "C"), lvl3], gap=0.4),
-            ],
-            gap=1.2,
-        ),
+        [
+            mo.md("### Stimulus Selection for Simulation"),
+            mo.hstack(
+                [
+                    mo.vstack([preview(lvl1.value, "A"), lvl1], gap=0.4),
+                    mo.vstack([preview(lvl2.value, "B"), lvl2], gap=0.4),
+                    mo.vstack([preview(lvl3.value, "C"), lvl3], gap=0.4),
+                ],
+                gap=1.2,
+                justify="center",
+            ),
         ],
         gap=0.5,
     )
     panel
     return
 
+
 @app.cell
 def _(mo):
-    lvl1 = mo.ui.slider(0.0, 1.0, value=0.2, step=0.05, label="Stim Level A")
-    lvl2 = mo.ui.slider(0.0, 1.0, value=0.5, step=0.05, label="Stim Level B")
-    lvl3 = mo.ui.slider(0.0, 1.0, value=0.8, step=0.05, label="Stim Level C")
+    demo_trials_per_level = mo.ui.number(
+        start=1,
+        stop=20,
+        value=5,
+        label="Trials per level (count, demonstration)",
+    )
+    demo_restart = mo.ui.refresh(label="Restart demo")
+    return demo_restart, demo_trials_per_level
 
-    n_trials = mo.ui.slider(10, 300, value=100, step=10, label="Trials per stim level")
-    n_observers = mo.ui.slider(1, 30, value=3, step=1, label="Observers")
 
-    sigma0 = mo.ui.slider(0.0, 2.0, value=0.0, step=0.05, label="Sigma0 (noise floor)")
-    sigma_scale = mo.ui.slider(0.0, 10.0, value=0.9, step=0.05, label="Sigma scale")
-    lapse = mo.ui.slider(0.0, 0.2, value=0.0, step=0.005, label="Lapse rate")
+@app.cell
+def _(
+    JsPsychTrialEngine,
+    build_motion_demo_levels,
+    build_jspsych_runner_html,
+    build_motion_demo_timeline,
+    demo_restart,
+    demo_trials_per_level,
+    lvl1,
+    lvl2,
+    lvl3,
+    mo,
+    motion_demo_runner_config,
+    render_srcdoc_iframe,
+):
+    _ = demo_restart.value
+    a = max(0.0, min(1.0, float(lvl1.value)))
+    b = max(0.0, min(1.0, float(lvl2.value)))
+    c = max(0.0, min(1.0, float(lvl3.value)))
+    reps = max(1, min(20, int(demo_trials_per_level.value or 5)))
+    demo_levels = build_motion_demo_levels(a, b, c, reps_per_level=reps)
+    n_motion = len(demo_levels)
+    demo_engine = JsPsychTrialEngine()
+    demo_timeline = build_motion_demo_timeline(demo_engine, demo_levels)
+    demo_html = build_jspsych_runner_html(
+        demo_timeline,
+        config=motion_demo_runner_config(),
+    )
+    demo_iframe = mo.Html(
+        render_srcdoc_iframe(demo_html, title="jsPsych Demo", height=520)
+    )
+    mo.vstack(
+        [
+            mo.md("### Demonstration"),
+            mo.md(
+                f"_{reps} trials per stim level ({n_motion} motion trials across A, B, C). "
+                "Motion direction is random each trial. "
+                "When you finish, bar charts matching the **Plots** section appear in this window._"
+            ),
+            demo_trials_per_level,
+            demo_iframe,
+            demo_restart,
+        ],
+        gap=0.5,
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    n_trials = mo.ui.number(
+        start=10,
+        stop=300,
+        value=100,
+        label="Trials per level (count)",
+    )
+    n_observers = mo.ui.number(
+        start=1,
+        stop=30,
+        value=3,
+        label="Participants (count)",
+    )
+
+    sigma0 = mo.ui.slider(
+        0.0, 2.0, value=0.0, step=0.05, label="σ₀ — noise floor (evidence SD)"
+    )
+    sigma_scale = mo.ui.slider(
+        0.0, 10.0, value=0.9, step=0.05, label="σ scale (evidence SD / coherence)"
+    )
+    lapse = mo.ui.slider(
+        0.0, 0.2, value=0.0, step=0.005, label="Lapse rate (proportion)"
+    )
 
     ndt = mo.ui.slider(0.05, 1.0, value=0.30, step=0.01, label="Non-decision time (s)")
-    rt_scale = mo.ui.slider(0.05, 1.0, value=0.35, step=0.05, label="RT scale")
-    rt_noise = mo.ui.slider(0.0, 0.2, value=0.03, step=0.01, label="RT noise (s)")
+    rt_scale = mo.ui.slider(0.05, 1.0, value=0.35, step=0.05, label="RT scale (s)")
+    rt_noise = mo.ui.slider(0.0, 0.2, value=0.03, step=0.01, label="RT noise SD (s)")
 
     run_sim = mo.ui.run_button(label="Run simulation")
 
-    fit_draws = mo.ui.slider(100, 2000, value=600, step=100, label="HSSM draws")
-    fit_tune = mo.ui.slider(100, 2000, value=600, step=100, label="HSSM tune")
-    fit_chains = mo.ui.slider(1, 4, value=2, step=1, label="HSSM chains")
+    fit_draws = mo.ui.slider(
+        100, 2000, value=600, step=100, label="HSSM posterior draws (samples)"
+    )
+    fit_tune = mo.ui.slider(
+        100, 2000, value=600, step=100, label="HSSM warmup tune (samples)"
+    )
+    fit_chains = mo.ui.slider(1, 4, value=2, step=1, label="HSSM MCMC chains (count)")
     return (
-        lvl1,
-        lvl2,
-        lvl3,
         fit_chains,
         fit_draws,
         fit_tune,
@@ -279,20 +263,74 @@ def _(
 ):
     run_fit = mo.ui.run_button(label="Run hssm fit", disabled=not bool(run_sim.value))
 
-    controls = mo.vstack(
-        [
-            mo.md("### Simulated Observer Settings"),
-            mo.hstack([n_trials, n_observers], gap=1),
-            mo.hstack([sigma0, sigma_scale, lapse], gap=1),
-            mo.hstack([ndt, rt_scale, rt_noise], gap=1),
-            mo.hstack([run_sim], gap=1),
-            mo.md("### HSSM Fit Settings"),
-            mo.hstack([fit_draws, fit_tune, fit_chains], gap=1),
-            mo.hstack([run_fit], gap=1),
-        ],
-        gap=0.6,
+    simulator_info_row = mo.Html(
+        """
+<div style="display:inline-flex;align-items:flex-start;gap:0.4rem;max-width:100%;">
+  <details style="position:relative;margin:0;">
+    <summary
+      aria-label="How the simulated observer works"
+      style="cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:0.35rem;
+        font-weight:600;color:inherit;"
+    >
+      <span>Simulator Info</span>
+      <span
+        style="display:inline-flex;align-items:center;justify-content:center;width:1.35rem;
+          height:1.35rem;border:1px solid #cbd5e1;border-radius:999px;font-size:0.8rem;
+          font-weight:600;color:#64748b;background:#f8fafc;"
+      >?</span>
+    </summary>
+    <div
+      style="position:absolute;left:calc(100% + 0.4rem);top:0;z-index:1000;min-width:18rem;
+        max-width:min(22rem,calc(100vw - 2rem));padding:0.65rem 0.75rem;font-size:0.82rem;
+        line-height:1.45;color:#0f172a;background:#fff;border:1px solid #cbd5e1;border-radius:6px;
+        box-shadow:0 4px 12px rgba(15,23,42,0.12);text-align:left;"
+    >
+      <p style="margin:0 0 0.5rem 0;"><strong>Experiment.</strong> For each participant, the app
+      runs every combination of the three coherence levels (A/B/C) and your chosen trial count.
+      Each trial is a binary left/right motion discrimination with random direction, using the
+      same side-strength encoding as the browser demo.</p>
+      <p style="margin:0 0 0.5rem 0;"><strong>Observer.</strong> Responses are generated by
+      <code>NAfcObserver</code>: per-alternative evidence is <em>weight × strength + noise</em>,
+      with noise increasing as coherence decreases; choices follow a lapse draw or
+      <code>argmax</code> on evidence; RT uses non-decision time plus a term inversely related
+      to the evidence margin (or a lapse RT path).</p>
+      <p style="margin:0;"><strong>Output.</strong> Run simulation builds a trial-level table
+      (accuracy, RT in s) used by the summary table, plots, and (after fitting) HSSM.</p>
+    </div>
+  </details>
+</div>
+"""
     )
-    controls
+
+    mo.md("### Simulation")
+    mo.vstack(
+        [
+            mo.accordion(
+                {
+                    "Simulator settings": mo.vstack(
+                        [
+                            mo.hstack([n_trials, n_observers], gap=1),
+                            mo.hstack([sigma0, sigma_scale, lapse], gap=1),
+                            mo.hstack([ndt, rt_scale, rt_noise], gap=1),
+                        ],
+                        gap=0.6,
+                    ),
+                }
+            ),
+            run_sim,
+            simulator_info_row,
+            mo.accordion(
+                {
+                    "Fitting settings": mo.vstack(
+                        [mo.hstack([fit_draws, fit_tune, fit_chains], gap=1)],
+                        gap=0.6,
+                    ),
+                }
+            ),
+            run_fit,
+        ],
+        gap=0.5,
+    )
     return run_fit
 
 
@@ -318,11 +356,11 @@ def _(
 ):
     mo.stop(not run_sim.value)
 
-    stim_levels = [float(lvl1.value), float(lvl2.value), float(lvl3.value)]
-    stim_levels = [max(0.0, c) for c in stim_levels]
+    condition_levels = [float(lvl1.value), float(lvl2.value), float(lvl3.value)]
+    condition_levels = [max(0.0, c) for c in condition_levels]
 
-    nT = int(n_trials.value)
-    nS = int(n_observers.value)
+    nT = max(10, min(300, int(n_trials.value or 100)))
+    nS = max(1, min(30, int(n_observers.value or 3)))
 
     rng = np.random.default_rng(12345)
     sim = JsPsychTrialEngine(rng=rng)
@@ -338,12 +376,12 @@ def _(
             rt_noise=float(rt_noise.value),
             rng=obs_rng,
         )
-        for level in stim_levels:
+        for level in condition_levels:
             trials = sim.make_trials(stim_level=level, n_trials=nT)
             for tr in sim.iter_trials(trials):
                 choice_index, rt = obs.choose(
-                    stim=tr["stim"],
-                    stim_levels=tr["stim_levels"],
+                    evidence_weight=tr["evidence_weight"],
+                    stim_strengths=tr["stim_strengths"],
                     ndt=float(ndt.value),
                 )
                 response = -1 if int(choice_index) == 0 else 1
@@ -366,10 +404,19 @@ def _(
 @app.cell
 def _(df, mo, summarize_behavior):
     by = summarize_behavior(df)
+    by_labeled = by.rename(
+        columns={
+            "stim_level": "coherence (proportion)",
+            "acc": "accuracy (proportion)",
+            "rt_mean": "mean RT (s)",
+            "rt_med": "median RT (s)",
+            "n": "trials (count)",
+        }
+    )
     mo.vstack(
         [
             mo.md("### Simulated behavior summary"),
-            mo.Html(by.to_html(index=False, classes="dataframe")),
+            mo.Html(by_labeled.to_html(index=False, classes="dataframe")),
         ],
         gap=0.5,
     )
@@ -384,20 +431,30 @@ def _(by, mo):
     acc_chart = (
         base.mark_bar()
         .encode(
-            x=alt.X("stim_level:Q"),
-            y=alt.Y("acc:Q", scale=alt.Scale(domain=[0, 1])),
-            tooltip=["n:Q", "rt_mean:Q", "acc:Q"],
+            x=alt.X("stim_level:Q", title="Coherence (proportion)"),
+            y=alt.Y("acc:Q", title="Accuracy (proportion)", scale=alt.Scale(domain=[0, 1])),
+            tooltip=[
+                alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
+                alt.Tooltip("acc:Q", title="Accuracy (proportion)", format=".3f"),
+                alt.Tooltip("n:Q", title="Trials (count)"),
+                alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
+            ],
         )
-        .properties(width=260, height=220, title="Accuracy by stim level")
+        .properties(width=260, height=220, title="Accuracy by coherence")
     )
     rt_chart = (
         base.mark_bar()
         .encode(
-            x=alt.X("stim_level:Q"),
-            y=alt.Y("rt_mean:Q"),
-            tooltip=["n:Q", "rt_mean:Q", "rt_med:Q"],
+            x=alt.X("stim_level:Q", title="Coherence (proportion)"),
+            y=alt.Y("rt_mean:Q", title="Mean RT (s)"),
+            tooltip=[
+                alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
+                alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
+                alt.Tooltip("rt_med:Q", title="Median RT (s)", format=".3f"),
+                alt.Tooltip("n:Q", title="Trials (count)"),
+            ],
         )
-        .properties(width=260, height=220, title="Mean RT by stim level")
+        .properties(width=260, height=220, title="Mean RT by coherence")
     )
     chart = mo.ui.altair_chart(alt.hconcat(acc_chart, rt_chart))
     mo.vstack([mo.md("### Plots"), chart], gap=0.5)
@@ -408,7 +465,7 @@ def _(by, mo):
 def _(df, fit_chains, fit_draws, fit_tune, mo, fit_hssm_model, run_fit, summarize_posterior):
     mo.stop(not run_fit.value)
 
-    header = mo.md("### HSSM fit (DDM drift depends on stim level)")
+    header = mo.md("### HSSM fit (DDM drift depends on coherence)")
     model, idata = fit_hssm_model(
         df,
         draws=int(fit_draws.value),
@@ -453,7 +510,7 @@ def _(df, idata, mo, model):
         plot_predictive_samples=True,
         bins=100,
         title="HSSM Model Cartoon",
-        xlabel="Response time",
+        xlabel="Response time (s)",
     )
 
     if isinstance(_ax_or_grid, list) and _ax_or_grid:

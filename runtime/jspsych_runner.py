@@ -2,177 +2,144 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
+
+from runtime.jspsych_plugins import (
+    DEFAULT_PLUGINS,
+    JSPSYCH_CORE_CSS,
+    JSPSYCH_CORE_JS,
+    JSPSYCH_PLUGIN_CDN,
+)
+
+_RUNTIME_DIR = Path(__file__).resolve().parent
 
 
-def _encode_timeline(timeline: list[dict[str, object]]) -> str:
-    timeline_json = json.dumps(timeline)
+@dataclass(frozen=True)
+class RunnerConfig:
+    """Browser runner options injected as base64 JSON."""
+
+    title: str = "jsPsych Runtime"
+    display_element: str = "jspsych-target"
+    plugins: tuple[str, ...] = DEFAULT_PLUGINS
+    extra_scripts: tuple[str, ...] = ()  # paths under runtime/, e.g. stimulus_display/motion_rdk.js
+    input_arrow_keys: bool = False
+    results_message_type: str = "jspsych-results"
+    show_results_charts: bool = False
+    results_task_filter: str | None = None
+    revive_keys: tuple[str, ...] = field(
+        default_factory=lambda: ("on_finish", "on_start", "on_load", "stimulus")
+    )
+
+
+@lru_cache(maxsize=1)
+def _runner_template() -> str:
+    return (_RUNTIME_DIR / "jspsych_runner.html").read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def _runner_css() -> str:
+    return (_RUNTIME_DIR / "jspsych_runner.css").read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def _runner_core_js() -> str:
+    return (_RUNTIME_DIR / "jspsych_runner_core.js").read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def _runner_boot_js() -> str:
+    return (_RUNTIME_DIR / "jspsych_runner_boot.js").read_text(encoding="utf-8")
+
+
+def _load_runtime_script(relative_path: str) -> str:
+    path = _RUNTIME_DIR / relative_path
+    return path.read_text(encoding="utf-8")
+
+
+def _encode_json_b64(payload: object) -> str:
+    timeline_json = json.dumps(payload, separators=(",", ":"))
     return base64.b64encode(timeline_json.encode("utf-8")).decode("ascii")
+
+
+def _plugin_script_tags(plugins: tuple[str, ...]) -> str:
+    lines: list[str] = []
+    for name in plugins:
+        url = JSPSYCH_PLUGIN_CDN.get(name)
+        if url is None:
+            raise ValueError(f"Unknown jsPsych plugin: {name}")
+        lines.append(f'  <script src="{url}"></script>')
+    return "\n".join(lines)
+
+
+def _vega_script_tags() -> str:
+    return (
+        '  <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>\n'
+        '  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>\n'
+        '  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>'
+    )
+
+
+def _extra_script_blocks(extra_scripts: tuple[str, ...]) -> str:
+    blocks: list[str] = []
+    for rel in extra_scripts:
+        script = _load_runtime_script(rel)
+        blocks.append(f"  <script>\n{script}\n  </script>")
+    return "\n".join(blocks)
 
 
 def build_jspsych_runner_html(
     timeline: list[dict[str, object]],
     *,
-    title: str = "jsPsych Runtime",
+    config: RunnerConfig | None = None,
+    title: str | None = None,
 ) -> str:
-    """Build a standalone jsPsych HTML runner page."""
-    # Base64 payload avoids escaping edge cases when embedding timeline in srcdoc.
-    timeline_b64 = _encode_timeline(timeline)
-    title_safe = title.replace("<", "&lt;").replace(">", "&gt;")
-    html = """<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>__TITLE_SAFE__</title>
-  <link href="https://cdn.jsdelivr.net/npm/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/jspsych@7.3.4/dist/index.browser.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-html-keyboard-response@1.1.3/dist/index.browser.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-html-button-response@1.1.3/dist/index.browser.js"></script>
-  <style>
-    html, body { margin: 0; padding: 0; overflow: hidden; font-family: system-ui, sans-serif; }
-    #jspsych-target { width: 100%; }
-  </style>
-</head>
-<body>
-  <div id="jspsych-target"></div>
-  <script>
-    const motionHandles = new WeakMap();
-    window.__startAllMotionCanvases = () => {
-      const canvases = document.querySelectorAll("canvas[data-rdk='1']");
-      canvases.forEach((canvas) => {
-        if (motionHandles.has(canvas)) return;
-        const W = canvas.width;
-        const H = canvas.height;
-        const N = Number(canvas.dataset.nDots || "80");
-        const stimLevel = Number(canvas.dataset.stimLevel || "0");
-        const dirSign = Number(canvas.dataset.dirSign || "1");
-        const seed0 = Number(canvas.dataset.seed || "42");
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        function mulberry32(a) {
-          return function() {
-            let t = (a += 0x6d2b79f5);
-            t = Math.imul(t ^ (t >>> 15), t | 1);
-            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-          };
-        }
-        const rnd = mulberry32(seed0);
-        const r = 2;
-        const inset = 8;
-        const xmin = inset + r, xmax = W - inset - r, ymin = inset + r, ymax = H - inset - r;
-        const xrng = Math.max(0.001, xmax - xmin), yrng = Math.max(0.001, ymax - ymin);
-        const nSignal = Math.round(N * stimLevel);
-        const dots = [];
-        for (let i = 0; i < N; i++) {
-          dots.push({ x: xmin + rnd() * xrng, y: ymin + rnd() * yrng, vx: 0, vy: 0, signal: i < nSignal });
-        }
-        for (let i = 0; i < N; i++) {
-          if (dots[i].signal) { dots[i].vx = dirSign; dots[i].vy = 0; }
-          else {
-            const a = rnd() * Math.PI * 2;
-            dots[i].vx = Math.cos(a); dots[i].vy = Math.sin(a);
-          }
-        }
-        function wrap(v, lo, span) { return lo + ((v - lo) % span + span) % span; }
-        const speed = 2.0;
-        let rafId = 0;
-        function draw() {
-          if (!canvas.isConnected) {
-            cancelAnimationFrame(rafId);
-            motionHandles.delete(canvas);
-            return;
-          }
-          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
-          ctx.save(); ctx.beginPath(); ctx.rect(inset, inset, W - 2 * inset, H - 2 * inset); ctx.clip();
-          ctx.fillStyle = "#000";
-          for (const d of dots) {
-            d.x = wrap(d.x + d.vx * speed, xmin, xrng);
-            d.y = wrap(d.y + d.vy * speed, ymin, yrng);
-            ctx.beginPath(); ctx.arc(d.x, d.y, r, 0, 2 * Math.PI); ctx.fill();
-          }
-          ctx.restore();
-          rafId = requestAnimationFrame(draw);
-        }
-        rafId = requestAnimationFrame(draw);
-        motionHandles.set(canvas, rafId);
-      });
-    };
-    const typeMap = {
-      "html-keyboard-response": (typeof jsPsychHtmlKeyboardResponse !== "undefined")
-        ? jsPsychHtmlKeyboardResponse
-        : null,
-      "html-button-response": (typeof jsPsychHtmlButtonResponse !== "undefined")
-        ? jsPsychHtmlButtonResponse
-        : null,
-    };
-    const reviveFn = (obj, key) => {
-      if (typeof obj[key] === "string" && obj[key].trim().startsWith("function")) {
-        obj[key] = eval("(" + obj[key] + ")");
-      }
-    };
-    const timeline = JSON.parse(atob("__TIMELINE_B64__")).map((t) => {
-      if (typeof t.type === "string" && typeMap[t.type]) {
-        t.type = typeMap[t.type];
-      }
-      reviveFn(t, "on_finish");
-      reviveFn(t, "on_start");
-      reviveFn(t, "on_load");
-      reviveFn(t, "stimulus");
-      return t;
-    });
-    if (typeof initJsPsych !== "function") {
-      const err = document.createElement("div");
-      err.style.color = "#b91c1c";
-      err.style.fontWeight = "600";
-      err.textContent = "Failed to load jsPsych runtime scripts.";
-      document.body.appendChild(err);
-      throw new Error("initJsPsych is unavailable; script CDN load failed.");
-    }
-    const isArrow = (k) => k === "ArrowLeft" || k === "ArrowRight";
-    const jsPsych = initJsPsych({
-      display_element: "jspsych-target",
-      on_finish: () => {
-        const rows = jsPsych.data.get().values();
-        try {
-          window.parent.postMessage({type: "jspsych-results", rows}, "*");
-        } catch (e) {}
-      }
-    });
-    const root = document.getElementById("jspsych-target");
-    if (root) {
-      root.setAttribute("tabindex", "0");
-    }
-    let inputArmed = false;
-    window.addEventListener("pointerdown", () => {
-      inputArmed = true;
-      if (root) {
-        root.focus();
-      }
-    });
-    // Keep arrow-key responses from scrolling the iframe/page.
-    window.addEventListener("keydown", (e) => {
-      if (!inputArmed) {
-        return;
-      }
-      if (isArrow(e.key)) {
-        e.stopPropagation();
-        e.preventDefault();
-      }
-    }, { passive: false });
-    window.addEventListener("keyup", (e) => {
-      if (!inputArmed) {
-        return;
-      }
-      if (isArrow(e.key)) {
-        e.stopPropagation();
-        e.preventDefault();
-      }
-    }, { passive: false });
-    window.__startAllMotionCanvases();
-    jsPsych.run(timeline);
-  </script>
-</body>
-</html>"""
-    return html.replace("__TITLE_SAFE__", title_safe).replace("__TIMELINE_B64__", timeline_b64)
+    """Build a standalone jsPsych HTML runner page from template assets."""
+    cfg = config or RunnerConfig()
+    if title is not None:
+        cfg = RunnerConfig(
+            title=title,
+            display_element=cfg.display_element,
+            plugins=cfg.plugins,
+            extra_scripts=cfg.extra_scripts,
+            input_arrow_keys=cfg.input_arrow_keys,
+            results_message_type=cfg.results_message_type,
+            show_results_charts=cfg.show_results_charts,
+            results_task_filter=cfg.results_task_filter,
+            revive_keys=cfg.revive_keys,
+        )
 
+    timeline_b64 = _encode_json_b64(timeline)
+    config_payload = {
+        "display_element": cfg.display_element,
+        "plugins": list(cfg.plugins),
+        "input_arrow_keys": cfg.input_arrow_keys,
+        "results_message_type": cfg.results_message_type,
+        "show_results_charts": cfg.show_results_charts,
+        "results_task_filter": cfg.results_task_filter,
+    }
+    config_b64 = _encode_json_b64(config_payload)
+    title_safe = cfg.title.replace("<", "&lt;").replace(">", "&gt;")
+
+    boot_js = (
+        _runner_boot_js()
+        .replace("__RUNNER_CONFIG_B64__", config_b64)
+        .replace("__TIMELINE_B64__", timeline_b64)
+    )
+
+    return (
+        _runner_template()
+        .replace("__TITLE_SAFE__", title_safe)
+        .replace("__JSPSYCH_CORE_CSS__", JSPSYCH_CORE_CSS)
+        .replace("__JSPSYCH_CORE_JS__", JSPSYCH_CORE_JS)
+        .replace(
+            "__VEGA_SCRIPT_TAGS__",
+            _vega_script_tags() if cfg.show_results_charts else "",
+        )
+        .replace("__PLUGIN_SCRIPT_TAGS__", _plugin_script_tags(cfg.plugins))
+        .replace("__RUNNER_CSS__", _runner_css())
+        .replace("__RUNNER_CORE_JS__", _runner_core_js())
+        .replace("__EXTRA_SCRIPT_BLOCKS__", _extra_script_blocks(cfg.extra_scripts))
+        .replace("__RUNNER_BOOT_JS__", boot_js)
+    )
