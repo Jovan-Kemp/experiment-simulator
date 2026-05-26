@@ -2,6 +2,7 @@
 const motionHandles = new WeakMap();
 
 const DEFAULT_SPEED_PX_S = 120;
+const DEFAULT_DOT_LIFETIME_S = 0.1;
 
 function mulberry32(seed) {
   return function () {
@@ -12,15 +13,36 @@ function mulberry32(seed) {
   };
 }
 
+function respawnDot(d, rnd, xmin, ymin, xrng, yrng) {
+  d.x = xmin + rnd() * xrng;
+  d.y = ymin + rnd() * yrng;
+  d.age = 0;
+}
+
+function dotOutside(d, xmin, xmax, ymin, ymax) {
+  return d.x < xmin || d.x > xmax || d.y < ymin || d.y > ymax;
+}
+
 function startCanvasLoop(canvas, state) {
-  const { ctx, W, H, inset, xmin, xmax, ymin, ymax, xrng, yrng, dots, speedPxS, r } =
-    state;
+  const {
+    ctx,
+    W,
+    H,
+    inset,
+    xmin,
+    xmax,
+    ymin,
+    ymax,
+    xrng,
+    yrng,
+    dots,
+    speedPxS,
+    dotLifetimeS,
+    r,
+    rnd,
+  } = state;
   let rafId = 0;
   let lastTs = null;
-
-  function wrap(v, lo, span) {
-    return lo + (((v - lo) % span) + span) % span;
-  }
 
   function draw(ts) {
     if (!canvas.isConnected) {
@@ -47,8 +69,12 @@ function startCanvasLoop(canvas, state) {
     ctx.clip();
     ctx.fillStyle = "#000";
     for (const d of dots) {
-      d.x = wrap(d.x + d.vx * step, xmin, xrng);
-      d.y = wrap(d.y + d.vy * step, ymin, yrng);
+      d.x += d.vx * step;
+      d.y += d.vy * step;
+      d.age += dt;
+      if (d.age >= dotLifetimeS || dotOutside(d, xmin, xmax, ymin, ymax)) {
+        respawnDot(d, rnd, xmin, ymin, xrng, yrng);
+      }
       ctx.beginPath();
       ctx.arc(d.x, d.y, r, 0, 2 * Math.PI);
       ctx.fill();
@@ -71,6 +97,12 @@ function startMotionCanvas(canvas) {
   const dirSign = Number(canvas.dataset.dirSign || "1");
   const seed0 = Number(canvas.dataset.seed || "42");
   const speedPxS = Number(canvas.dataset.speedPxS || String(DEFAULT_SPEED_PX_S));
+  let dotLifetimeS = Number(
+    canvas.dataset.dotLifetimeS || String(DEFAULT_DOT_LIFETIME_S)
+  );
+  if (!Number.isFinite(dotLifetimeS) || dotLifetimeS <= 0) {
+    dotLifetimeS = DEFAULT_DOT_LIFETIME_S;
+  }
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -93,6 +125,7 @@ function startMotionCanvas(canvas) {
       vx: 0,
       vy: 0,
       signal: i < nSignal,
+      age: rnd() * dotLifetimeS,
     });
   }
 
@@ -120,7 +153,9 @@ function startMotionCanvas(canvas) {
     yrng,
     dots,
     speedPxS,
+    dotLifetimeS,
     r,
+    rnd,
   });
 }
 

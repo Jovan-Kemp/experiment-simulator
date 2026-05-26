@@ -17,8 +17,10 @@ def motion_coherence_preview_iframe_src(
     duration_s: float = 5.0,
     seed: int = 42,
     speed_px_s: float = 120.0,
+    dot_lifetime_s: float = 0.1,
 ) -> str:
     c = max(0.0, min(1.0, float(stim_level)))
+    lifetime = max(0.001, float(dot_lifetime_s))
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>body{{margin:0;background:#ffffff;overflow:hidden}}canvas{{display:block;width:{width}px;height:{height}px;max-width:{width}px;max-height:{height}px}}</style></head>
 <body>
@@ -26,7 +28,6 @@ def motion_coherence_preview_iframe_src(
 <script>
 (function() {{
   const W = {width}, H = {height}, N = {int(n_dots)}, stimLevel = {c};
-  const durationMs = {int(round(float(duration_s) * 1000))};
   const seed = {int(seed)} + {_label_seed(instance_label)};
   function mulberry32(a) {{
     return function() {{
@@ -45,8 +46,12 @@ def motion_coherence_preview_iframe_src(
   const yrng = Math.max(0.0001, ymax - ymin);
   const nSignal = Math.round(N * stimLevel);
   const dots = [];
+  const dotLifetimeS = {lifetime};
   for (let i = 0; i < N; i++) {{
-    dots.push({{ x: xmin + rnd() * xrng, y: ymin + rnd() * yrng, vx: 0, vy: 0, signal: i < nSignal }});
+    dots.push({{
+      x: xmin + rnd() * xrng, y: ymin + rnd() * yrng,
+      vx: 0, vy: 0, signal: i < nSignal, age: rnd() * dotLifetimeS
+    }});
   }}
   for (let i = 0; i < N; i++) {{
     if (dots[i].signal) {{ dots[i].vx = 1; dots[i].vy = 0; }}
@@ -55,19 +60,19 @@ def motion_coherence_preview_iframe_src(
       dots[i].vx = Math.cos(ang); dots[i].vy = Math.sin(ang);
     }}
   }}
-  const initial = dots.map(d => ({{ x: d.x, y: d.y }}));
   const speedPxS = {float(speed_px_s)};
   const canvas = document.getElementById('cv');
   const ctx = canvas.getContext('2d');
-  let t0 = performance.now();
   let lastTs = null;
-  function wrap(v, lo, span) {{ return lo + ((v - lo) % span + span) % span; }}
+  function respawn(d) {{
+    d.x = xmin + rnd() * xrng;
+    d.y = ymin + rnd() * yrng;
+    d.age = 0;
+  }}
+  function outside(d) {{
+    return d.x < xmin || d.x > xmax || d.y < ymin || d.y > ymax;
+  }}
   function step(now) {{
-    if (now - t0 >= durationMs) {{
-      t0 = now;
-      lastTs = null;
-      for (let i = 0; i < N; i++) {{ dots[i].x = initial[i].x; dots[i].y = initial[i].y; }}
-    }}
     if (lastTs === null) {{ lastTs = now; }}
     let dt = (now - lastTs) / 1000;
     lastTs = now;
@@ -78,8 +83,10 @@ def motion_coherence_preview_iframe_src(
     ctx.beginPath(); ctx.rect(inset, inset, W - 2 * inset, H - 2 * inset); ctx.clip();
     ctx.fillStyle = '#000000';
     for (const d of dots) {{
-      d.x = wrap(d.x + d.vx * stepDist, xmin, xrng);
-      d.y = wrap(d.y + d.vy * stepDist, ymin, yrng);
+      d.x += d.vx * stepDist;
+      d.y += d.vy * stepDist;
+      d.age += dt;
+      if (d.age >= dotLifetimeS || outside(d)) {{ respawn(d); }}
       ctx.beginPath(); ctx.arc(d.x, d.y, r, 0, Math.PI * 2); ctx.fill();
     }}
     ctx.restore();
@@ -103,6 +110,7 @@ def motion_coherence_preview_iframe_html(
     duration_s: float = 5.0,
     seed: int = 42,
     speed_px_s: float = 120.0,
+    dot_lifetime_s: float = 0.1,
 ) -> str:
     src = motion_coherence_preview_iframe_src(
         stim_level,
@@ -113,6 +121,7 @@ def motion_coherence_preview_iframe_html(
         duration_s=duration_s,
         seed=seed,
         speed_px_s=speed_px_s,
+        dot_lifetime_s=dot_lifetime_s,
     )
     w = width + 12
     h = height + 12
@@ -134,6 +143,7 @@ def motion_trial_stimulus_html(
     n_dots: int = 80,
     seed: int = 42,
     speed_px_s: float = 120.0,
+    dot_lifetime_s: float = 0.1,
 ) -> str:
     """HTML stimulus for jsPsych html-keyboard-response.
 
@@ -155,6 +165,7 @@ def motion_trial_stimulus_html(
     data-seed="{int(seed) + (sum(ord(ch) for ch in trial_id) & 0x7FFFFFFF)}"
     data-n-dots="{int(n_dots)}"
     data-speed-px-s="{float(speed_px_s)}"
+    data-dot-lifetime-s="{max(0.001, float(dot_lifetime_s))}"
     style="width:{int(width)}px;height:{int(height)}px;max-width:{int(width)}px;max-height:{int(height)}px;border:1px solid #000;background:#fff;flex-shrink:0;"
   ></canvas>
 </div>

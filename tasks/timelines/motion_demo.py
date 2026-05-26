@@ -89,6 +89,7 @@ def build_motion_demo_timeline(
     n_dots: int = 80,
     speed_px_s: float = 120.0,
     seed: int = 42,
+    dot_lifetime_s: float = 0.1,
 ) -> list[dict[str, object]]:
     """Build intro -> countdown -> motion trials (+ feedback) for the marimo demo."""
     demo_trials = []
@@ -106,6 +107,7 @@ def build_motion_demo_timeline(
         n_dots=n_dots,
         speed_px_s=speed_px_s,
         seed=seed,
+        dot_lifetime_s=dot_lifetime_s,
     )
     timeline: list[dict[str, object]] = [INTRO_TRIAL, *COUNTDOWN_TRIALS]
     for trial in motion_trials:

@@ -122,18 +122,33 @@ def _(mo):
 
 
 @app.cell
+def _(mo):
+    dot_lifetime_s = mo.ui.number(
+        start=0.01,
+        stop=10.0,
+        value=0.1,
+        step=0.01,
+        label="Dot lifetime (s)",
+    )
+    return (dot_lifetime_s,)
+
+
+@app.cell
 def _(
     MOTION_N_DOTS,
     MOTION_PREVIEW_HEIGHT,
     MOTION_PREVIEW_WIDTH,
     MOTION_SEED,
     MOTION_SPEED_PX_S,
+    dot_lifetime_s,
     lvl1,
     lvl2,
     lvl3,
     mo,
     motion_coherence_preview_iframe_html,
 ):
+    _lifetime = max(0.01, float(dot_lifetime_s.value or 0.1))
+
     def preview(stim_level: float, label: str):
         html = motion_coherence_preview_iframe_html(
             float(stim_level),
@@ -144,12 +159,14 @@ def _(
             duration_s=5.0,
             seed=MOTION_SEED,
             speed_px_s=MOTION_SPEED_PX_S,
+            dot_lifetime_s=_lifetime,
         )
         return mo.Html(html)
 
     panel = mo.vstack(
         [
             mo.md("### Stimulus Selection for Simulation"),
+            dot_lifetime_s,
             mo.hstack(
                 [
                     mo.vstack([preview(lvl1.value, "A"), lvl1], gap=0.4),
@@ -164,8 +181,6 @@ def _(
     )
     panel
     return
-
-
 @app.cell
 def _(mo):
     demo_trials_per_level = mo.ui.number(
@@ -191,6 +206,7 @@ def _(
     build_motion_demo_timeline,
     demo_restart,
     demo_trials_per_level,
+    dot_lifetime_s,
     lvl1,
     lvl2,
     lvl3,
@@ -199,6 +215,7 @@ def _(
     render_srcdoc_iframe,
 ):
     _ = demo_restart.value
+    _lifetime = max(0.01, float(dot_lifetime_s.value or 0.1))
     a = max(0.0, min(1.0, float(lvl1.value)))
     b = max(0.0, min(1.0, float(lvl2.value)))
     c = max(0.0, min(1.0, float(lvl3.value)))
@@ -214,6 +231,7 @@ def _(
         n_dots=MOTION_N_DOTS,
         speed_px_s=MOTION_SPEED_PX_S,
         seed=MOTION_SEED,
+        dot_lifetime_s=_lifetime,
     )
     demo_html = build_jspsych_runner_html(
         demo_timeline,

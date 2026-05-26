@@ -35,6 +35,7 @@ def build_motion_keyboard_trial(
     n_dots: int = 80,
     speed_px_s: float = 120.0,
     seed: int = 42,
+    dot_lifetime_s: float = 0.1,
 ) -> dict[str, object]:
     """Convert one motion trial contract into a jsPsych html-keyboard-response trial."""
     correct_index = int(tr["correct_index"])
@@ -48,6 +49,7 @@ def build_motion_keyboard_trial(
         n_dots=n_dots,
         speed_px_s=speed_px_s,
         seed=seed,
+        dot_lifetime_s=dot_lifetime_s,
     )
     timeline_trial: dict[str, object] = {
         "type": "html-keyboard-response",
@@ -92,6 +94,7 @@ def motion_to_jspsych_timeline(
     n_dots: int = 80,
     speed_px_s: float = 120.0,
     seed: int = 42,
+    dot_lifetime_s: float = 0.1,
 ) -> list[dict[str, object]]:
     """Motion-coherence adapter for jsPsych timeline export."""
 
@@ -110,6 +113,7 @@ def motion_to_jspsych_timeline(
             n_dots=n_dots,
             speed_px_s=speed_px_s,
             seed=seed,
+            dot_lifetime_s=dot_lifetime_s,
         )
 
     return to_jspsych_timeline(
