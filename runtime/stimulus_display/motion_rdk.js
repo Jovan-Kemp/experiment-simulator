@@ -1,6 +1,8 @@
 /** Motion RDK display: animates canvases emitted by renderers/motion_trial_stimulus_html. */
 const motionHandles = new WeakMap();
 
+const DEFAULT_SPEED_PX_S = 120;
+
 function mulberry32(seed) {
   return function () {
     let t = (seed += 0x6d2b79f5);
@@ -11,19 +13,32 @@ function mulberry32(seed) {
 }
 
 function startCanvasLoop(canvas, state) {
-  const { ctx, W, H, inset, xmin, xmax, ymin, ymax, xrng, yrng, dots, speed, r } = state;
+  const { ctx, W, H, inset, xmin, xmax, ymin, ymax, xrng, yrng, dots, speedPxS, r } =
+    state;
   let rafId = 0;
+  let lastTs = null;
 
   function wrap(v, lo, span) {
     return lo + (((v - lo) % span) + span) % span;
   }
 
-  function draw() {
+  function draw(ts) {
     if (!canvas.isConnected) {
       cancelAnimationFrame(rafId);
       motionHandles.delete(canvas);
       return;
     }
+    const now = typeof ts === "number" ? ts : performance.now();
+    if (lastTs === null) {
+      lastTs = now;
+    }
+    let dt = (now - lastTs) / 1000;
+    lastTs = now;
+    if (dt > 0.1) {
+      dt = 0.1;
+    }
+    const step = speedPxS * dt;
+
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, W, H);
     ctx.save();
@@ -32,8 +47,8 @@ function startCanvasLoop(canvas, state) {
     ctx.clip();
     ctx.fillStyle = "#000";
     for (const d of dots) {
-      d.x = wrap(d.x + d.vx * speed, xmin, xrng);
-      d.y = wrap(d.y + d.vy * speed, ymin, yrng);
+      d.x = wrap(d.x + d.vx * step, xmin, xrng);
+      d.y = wrap(d.y + d.vy * step, ymin, yrng);
       ctx.beginPath();
       ctx.arc(d.x, d.y, r, 0, 2 * Math.PI);
       ctx.fill();
@@ -55,6 +70,7 @@ function startMotionCanvas(canvas) {
   const stimLevel = Number(canvas.dataset.stimLevel || "0");
   const dirSign = Number(canvas.dataset.dirSign || "1");
   const seed0 = Number(canvas.dataset.seed || "42");
+  const speedPxS = Number(canvas.dataset.speedPxS || String(DEFAULT_SPEED_PX_S));
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -103,7 +119,7 @@ function startMotionCanvas(canvas) {
     xrng,
     yrng,
     dots,
-    speed: 2.0,
+    speedPxS,
     r,
   });
 }

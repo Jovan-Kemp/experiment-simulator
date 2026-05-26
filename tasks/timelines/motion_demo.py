@@ -21,6 +21,21 @@ INTRO_TRIAL: dict[str, object] = {
     "grid_columns": 1,
 }
 
+COUNTDOWN_SECONDS = 3
+
+COUNTDOWN_TRIALS: list[dict[str, object]] = [
+    {
+        "type": "html-keyboard-response",
+        "stimulus": (
+            f'<div style="font-size:72px;font-weight:700;text-align:center;">{n}</div>'
+        ),
+        "choices": "NO_KEYS",
+        "trial_duration": 1000,
+        "data": {"task": "countdown"},
+    }
+    for n in range(COUNTDOWN_SECONDS, 0, -1)
+]
+
 FEEDBACK_TRIAL: dict[str, object] = {
     "type": "html-keyboard-response",
     "stimulus": (
@@ -68,8 +83,14 @@ def build_motion_demo_levels(
 def build_motion_demo_timeline(
     engine: "JsPsychTrialEngine",
     demo_levels: list[tuple[str, float]],
+    *,
+    canvas_width: int = 500,
+    canvas_height: int = 260,
+    n_dots: int = 80,
+    speed_px_s: float = 120.0,
+    seed: int = 42,
 ) -> list[dict[str, object]]:
-    """Build intro -> motion trials (+ feedback) -> summary for the marimo demo."""
+    """Build intro -> countdown -> motion trials (+ feedback) for the marimo demo."""
     demo_trials = []
     for idx, (label, level) in enumerate(demo_levels, start=1):
         trial = engine.make_trials(stim_level=level, n_trials=1)[0]
@@ -77,8 +98,16 @@ def build_motion_demo_timeline(
         trial["data"]["trial_num"] = idx
         demo_trials.append(trial)
 
-    motion_trials = motion_to_jspsych_timeline(demo_trials, trial_duration_ms=None)
-    timeline: list[dict[str, object]] = [INTRO_TRIAL]
+    motion_trials = motion_to_jspsych_timeline(
+        demo_trials,
+        trial_duration_ms=None,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
+        n_dots=n_dots,
+        speed_px_s=speed_px_s,
+        seed=seed,
+    )
+    timeline: list[dict[str, object]] = [INTRO_TRIAL, *COUNTDOWN_TRIALS]
     for trial in motion_trials:
         timeline.extend([trial, FEEDBACK_TRIAL])
     return timeline

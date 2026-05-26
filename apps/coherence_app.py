@@ -79,17 +79,38 @@ def _(Path, mo):
     )
     intro = mo.md(
         r"""
-## HSSM demonstration with motion coherence simulated experiment
+## Demonstration with of simulated experiment to HSSM pipeline with motion coherence paradigm
 
-This app simulates a **binary left/right motion task** at **three coherence levels** (0–1, dimensionless) you set with the sliders (shown side-by-side).
+This example simulates a **binary left/right motion task** at **three coherence levels** you set with the sliders (shown side-by-side).
 
-- **Observer**: n-AFC virtual observer with **stimulus-level dependent Gaussian noise** plus lapse noise.
-- **Task**: trials use **jsPsych-style** objects generated in Python; jsPsych can execute these trials directly in-browser.
+- **Observer**: n-AFC virtual observer with **stimulus-level dependent Gaussian noise** and lapse rate.
+- **Task**: trials use **jsPsych** objects generated in Python.
 - **Fit**: fits a **HSSM** DDM with drift \(v\) regressed on coherence (`stim_level`, proportion).
 """
     )
     mo.vstack([logo_block, intro], gap=0.75)
     return
+
+
+@app.cell
+def _():
+    # Motion stimulus display (coherence app only).
+    MOTION_CANVAS_WIDTH = 500
+    MOTION_CANVAS_HEIGHT = 260
+    MOTION_PREVIEW_WIDTH = 220
+    MOTION_PREVIEW_HEIGHT = 140
+    MOTION_N_DOTS = 100
+    MOTION_SPEED_PX_S = 120.0
+    MOTION_SEED = 42
+    return (
+        MOTION_CANVAS_HEIGHT,
+        MOTION_CANVAS_WIDTH,
+        MOTION_N_DOTS,
+        MOTION_PREVIEW_HEIGHT,
+        MOTION_PREVIEW_WIDTH,
+        MOTION_SEED,
+        MOTION_SPEED_PX_S,
+    )
 
 
 @app.cell
@@ -101,14 +122,28 @@ def _(mo):
 
 
 @app.cell
-def _(lvl1, lvl2, lvl3, mo, motion_coherence_preview_iframe_html):
+def _(
+    MOTION_N_DOTS,
+    MOTION_PREVIEW_HEIGHT,
+    MOTION_PREVIEW_WIDTH,
+    MOTION_SEED,
+    MOTION_SPEED_PX_S,
+    lvl1,
+    lvl2,
+    lvl3,
+    mo,
+    motion_coherence_preview_iframe_html,
+):
     def preview(stim_level: float, label: str):
         html = motion_coherence_preview_iframe_html(
             float(stim_level),
             instance_label=label,
-            n_dots=80,
+            n_dots=MOTION_N_DOTS,
+            width=MOTION_PREVIEW_WIDTH,
+            height=MOTION_PREVIEW_HEIGHT,
             duration_s=5.0,
-            seed=42,
+            seed=MOTION_SEED,
+            speed_px_s=MOTION_SPEED_PX_S,
         )
         return mo.Html(html)
 
@@ -146,6 +181,11 @@ def _(mo):
 @app.cell
 def _(
     JsPsychTrialEngine,
+    MOTION_CANVAS_HEIGHT,
+    MOTION_CANVAS_WIDTH,
+    MOTION_N_DOTS,
+    MOTION_SEED,
+    MOTION_SPEED_PX_S,
     build_motion_demo_levels,
     build_jspsych_runner_html,
     build_motion_demo_timeline,
@@ -166,7 +206,15 @@ def _(
     demo_levels = build_motion_demo_levels(a, b, c, reps_per_level=reps)
     n_motion = len(demo_levels)
     demo_engine = JsPsychTrialEngine()
-    demo_timeline = build_motion_demo_timeline(demo_engine, demo_levels)
+    demo_timeline = build_motion_demo_timeline(
+        demo_engine,
+        demo_levels,
+        canvas_width=MOTION_CANVAS_WIDTH,
+        canvas_height=MOTION_CANVAS_HEIGHT,
+        n_dots=MOTION_N_DOTS,
+        speed_px_s=MOTION_SPEED_PX_S,
+        seed=MOTION_SEED,
+    )
     demo_html = build_jspsych_runner_html(
         demo_timeline,
         config=motion_demo_runner_config(),
