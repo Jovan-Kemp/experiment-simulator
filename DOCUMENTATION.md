@@ -12,21 +12,122 @@ It supports:
 
 The design favors interchangeable components so task logic, stimulus delivery, and observer/input sources can evolve without rewriting the full stack.
 
+## Pipeline flowchart
+
+End-to-end flow for the coherence marimo app (`experiments/coherence_demo/coherence_demo.py`). Trials are built once; **response collection** swaps a simulated **Observer** for a human participant; **analysis** (`analysis/hssm_pipeline.py`) summarizes the simulated DataFrame and optionally fits HSSM. Step-by-step detail is in [Runtime Flow](#runtime-flow).
+
+```mermaid
+flowchart TB
+  subgraph UI["experiments/coherence_demo/coherence_demo.py (marimo)"]
+    sliders["Coherence sliders, dot lifetime,\ntrials / participants"]
+    simCtrl["Observer settings\nσ₀, σ scale, lapse, NDT, RT params"]
+    runSim["Run simulation"]
+    runFit["Run HSSM fit"]
+  end
+
+  makeTrials["make_motion_coherence_trials()\n→ FactorTrialGenerator blocks"]
+  expGen["ExperimentGenerator\nexperiment params + blocks"]
+  trial["Trial\nstimulus_factors · display_params · data"]
+
+  subgraph Resp["Response collection"]
+    direction{"Response source?"}
+    observerBB["Observer\n(stimulus_factors, ndt) → choice, rt"]
+    participant["Participant\n(display_params → stimulus,\nhuman choice + rt)"]
+  end
+
+  subgraph Analysis["Analysis"]
+    df["pandas DataFrame\nsubj, stim_level, choice_index,\nresponse, rt, correct"]
+    summarize["summarize_behavior(df)\naccuracy / RT tables + Altair plots"]
+    hssm["fit_hssm_model(df)\nDDM with v ~ stim_level"]
+    posterior["summarize_posterior(idata)\n+ HSSM model cartoon"]
+  end
+
+  sliders --> makeTrials --> expGen --> trial
+  trial --> direction
+  direction -->|simulated| observerBB
+  direction -->|participant| participant
+  simCtrl --> observerBB
+  runSim --> observerBB
+  observerBB --> df
+  participant -.->|"postMessage (planned)"| df
+  df --> summarize
+  df --> hssm
+  runFit --> hssm
+  hssm --> posterior
+```
+
+After **Run simulation**, marimo builds `df` and renders `summarize_behavior` plots. **Run HSSM fit** is a separate control that calls `fit_hssm_model` then `summarize_posterior` (and the model cartoon).
+
+The **Observer** node is a black box in this view. The diagram below is the same stage opened up: simulated path implements the box in Python (`observers/evidence_observer.py`); the participant path replaces it with browser presentation plus human input.
+
+### Observer: simulated vs participant
+
+```mermaid
+flowchart TB
+  trial["Trial from generator"]
+
+  direction{"Response source?"}
+  trial --> direction
+
+  subgraph Sim["Simulated — Observer black box"]
+    direction -->|simulated| stimHook["stimulus_to_strengths\n(swap per task)"]
+    stimHook --> defaultMap["default:\nmotion_stimulus_to_strengths"]
+    defaultMap --> strengths["latent stim_strengths"]
+    strengths --> choose["Observer.choose()\n(NAfcObserver)"]
+    choose --> evidenceHook["evidence_model\n(swap)"]
+    evidenceHook --> defaultEV["default:\n_default_evidence_model"]
+    evidenceHook -.->|optional| customEV["custom evidence_model"]
+    defaultEV --> decision["Lapse draw · argmax / threshold"]
+    customEV -.-> decision
+    decision --> rtPath["RT from margin or lapse rule"]
+    rtPath --> outSim["(choice_index, rt)"]
+  end
+
+  subgraph Part["Participant"]
+    direction -->|participant| presHook["Presentation layer\n(swap per task)"]
+    presHook --> defaultPres["default:\nmotion_to_jspsych_timeline\n+ motion_trial_stimulus_html"]
+    defaultPres --> runner["jspsych_runner iframe"]
+    runner --> rdk["motion_rdk.js"]
+    rdk --> human["Human perception +\nkeypress"]
+    human --> score["Scoring on_finish"]
+    score --> outHuman["(response, rt, correct)"]
+  end
+```
+
+**Simulated Observer — swappable hooks** (each arrow targets the **default** box used in this repo):
+
+| Hook | Default (in diagram) | Typical swap |
+|------|----------------------|--------------|
+| `stimulus_to_strengths` | `motion_stimulus_to_strengths` | Another per-task mapper in `coherence_demo/coherence_demo.py` or at `NAfcObserver` construction |
+| `evidence_model` | `_default_evidence_model` | Custom `Callable` on `NAfcObserver` |
+| Observer class | `NAfcObserver` | Another class under `observers/` with the same `(factors, ndt) → (choice, rt)` surface |
+| Presentation (participant) | `motion_to_jspsych_timeline` + `motion_trial_stimulus_html` | Other `renderers/` + `schemas/jspsych_timeline.py` builders |
+
+**Tuned on `NAfcObserver` but fixed policy** (not plug-in hooks): `sigma0`, `sigma_scale`, `lapse_rate`, `evidence_weight`, `rt_scale`, `rt_noise`. Decision and RT rules inside `choose()` stay unless you replace the agent class.
+
+**Participant path** — swap the presentation hook; the **default** motion stack is shown in the diagram. The human is the decision maker. Only `display_params` (and jsPsych metadata) affect what they see; `stimulus_factors` are mirrored in logging/scoring, not fed to `NAfcObserver`.
+
+Internal decision/RT steps for the default simulated Observer are diagrammed in [`observers/observersDescriptions.md`](observers/observersDescriptions.md).
+
 ## Directory Map
 
 Current structure:
 
-- `apps/`
-  - `coherence_app.py` - marimo orchestration app (demo runner, controls, simulation wiring, plotting, model calls)
-- `tasks/`
+- `experiments/`
+  - `coherence_demo/` - marimo coherence → HSSM demonstration
+    - `coherence_demo.py` - orchestration (demo runner, controls, simulation, plotting, model calls)
+    - `coherence_demo.css` - marimo UI styles for the demonstration
+- `schemas/`
+  - `contracts.py` - shared typed contracts (`ExperimentParams`, `Trial`, result message types)
   - `trial_generator.py` - abstract `TrialGenerator` and `FactorTrialGenerator`
+  - `experimentGenerator.py` - `ExperimentGenerator`: experiment params + multiple `TrialGenerator` blocks
   - `jspsych_timeline.py` - generic jsPsych timeline adapters and motion trial builder
   - `timelines/motion_demo.py` - precomposed demo timeline + demo `RunnerConfig`
 - `renderers/`
   - `jspsych_preview.py` - browser Canvas/iframe stimulus previews
-- `agents/`
+- `observers/`
   - `evidence_observer.py` - virtual observer behavior models
-  - `agentsDescriptions.md` - notes and flowcharts for each agent (`NAfcObserver` decision and RT rules)
+  - `observersDescriptions.md` - notes and flowcharts for each agent (`NAfcObserver` decision and RT rules)
 - `runtime/`
   - `jspsych_runner.py` - `RunnerConfig` + HTML assembly (timeline/config base64 injection)
   - `jspsych_plugins.py` - jsPsych CDN plugin registry
@@ -40,8 +141,6 @@ Current structure:
 - `analysis/`
   - `hssm_pipeline.py` - fit/summarize helpers for HSSM analyses
   - `descriptive_stats.py` - d-prime and standard error descriptive statistics helpers
-- `schemas/`
-  - `contracts.py` - shared typed data contracts (`Trial`, `JsPsychTrial` alias)
 - `README.md` - quickstart and run instructions
 - `DOCUMENTATION.md` - this architecture guide
 - `pyproject.toml` - project metadata and dependencies
@@ -50,7 +149,7 @@ Current structure:
 
 ## Module Responsibilities
 
-### `apps/coherence_app.py`
+### `experiments/coherence_demo/coherence_demo.py`
 
 Role:
 
@@ -68,39 +167,58 @@ Motion display settings for this app only (not shared defaults elsewhere):
 - dot count, speed (px/s), and seed (`MOTION_N_DOTS`, `MOTION_SPEED_PX_S`, `MOTION_SEED`)
 - dot lifetime from the **Dot lifetime (s)** number input (passed to previews and demo timeline)
 
-Motion display settings and motion-specific trial sampling (`make_motion_coherence_trials`, `motion_stimulus_to_strengths`) live in `coherence_app.py` only.
+Motion display settings and motion-specific trial sampling (`make_motion_coherence_trials`, `motion_stimulus_to_strengths`) live in `coherence_demo/coherence_demo.py` only.
 
 Key integration boundaries:
 
-- imports trial builders from `tasks/`
-- imports observer behavior from `agents/`
+- imports trial builders from `schemas/`
+- imports observer behavior from `observers/`
 - imports preview rendering helpers from `renderers/`
 - imports model-fit utilities from `analysis/`
 - keeps orchestration separate from implementation modules
 
 Key helper structure:
 
-- builds demo timeline via `tasks/timelines/motion_demo.py`
+- builds demo timeline via `schemas/timelines/motion_demo.py`
 - uses `runtime/embed.py` for iframe embedding and `RunnerConfig` for demo runner options
 
-### `tasks/trial_generator.py`
+### `schemas/contracts.py`
+
+Role:
+
+- ``ExperimentParams``, ``Trial``, ``JsPsychTrial``, ``SimulatedObservation``, ``JsPsychResultsMessage``
+- shared data shapes for trial generators, experiment organization, jsPsych adapters, and analysis ingest
+
+### `schemas/trial_generator.py`
 
 Role:
 
 - abstract ``TrialGenerator``: stores an ordered list of trial parameter dicts, tracks an internal index, exposes ``next_trial()``, ``reset()``, and ``has_next()``
 - ``FactorTrialGenerator``: concrete implementation for explicit / factorial trial lists; ``generate_trials()`` builds one trial dict
 
-### `tasks/jspsych_timeline.py`
+Trial generators do **not** own experiment-wide display defaults or output paths; they only build and iterate trials for one block (e.g. one coherence level).
+
+### `schemas/experimentGenerator.py`
+
+Role:
+
+- ``ExperimentGenerator`` holds ``ExperimentParams`` (``display_params``, ``data_output_path``) and an ordered list of ``TrialGenerator`` instances
+- ``add_trial_generator()`` attaches a block; ``next_trial()`` walks blocks in order, merging experiment ``display_params`` into each trial (trial keys win on conflict)
+- ``all_trials()`` materializes the full experiment without advancing cursors
+
+Simulation and the motion demo attach one ``FactorTrialGenerator`` per condition level (or per demo trial) via ``add_trial_generator()``.
+
+### `schemas/jspsych_timeline.py`
 
 Role:
 
 - generic `to_jspsych_timeline(trials, trial_builder, ...)`
 - motion-specific `build_motion_keyboard_trial` + `motion_to_jspsych_timeline`
-- reads display parameters from each trial's `stimulus_params`
+- reads display parameters from each trial's `display_params`
 - uses per-trial `presentation_duration_ms` when set
 - motion trial `on_finish` scoring and `on_load` canvas hooks (strings revived in browser)
 
-### `tasks/timelines/motion_demo.py`
+### `schemas/timelines/motion_demo.py`
 
 Role:
 
@@ -109,7 +227,7 @@ Role:
 - demo coherence levels come from marimo sliders (A/B/C), not hardcoded constants
 - `motion_demo_runner_config()` enables in-iframe result charts and loads `motion_rdk.js`
 
-### `agents/evidence_observer.py`
+### `observers/evidence_observer.py`
 
 Role:
 
@@ -119,7 +237,7 @@ Role:
 
 Current `NAfcObserver` behavior:
 
-- Accepts experiment ``stimulus_params``; derives latent ``stim_strengths`` via ``stimulus_to_strengths``.
+- Accepts experiment ``stimulus_factors``; derives latent ``stim_strengths`` via ``stimulus_to_strengths``.
 - ``evidence_weight`` is an observer parameter (default all ones = no directional bias).
 - Latent evidence defaults to `evidence_weight * stim_strengths + Gaussian noise`.
 - Sensory noise uses `sigma = sigma0 + sigma_scale * c` where `c` is driven by task difficulty (`1 - coherence`, `coherence = max(stim_strengths)`).
@@ -190,7 +308,7 @@ Extension pattern for new tasks:
 
 1. Add renderer HTML contract (if needed) under `renderers/`
 2. Add optional browser stimulus display script under `runtime/stimulus_display/`
-3. Add trial builder adapter under `tasks/` (or reuse `to_jspsych_timeline`)
+3. Add trial builder adapter under `schemas/` (or reuse `to_jspsych_timeline`)
 4. Pass `RunnerConfig(plugins=(...), extra_scripts=(...), input_arrow_keys=...)` when building HTML
 5. Use `window.__jsPsychInstance` in any eval'd jsPsych trial callbacks
 
@@ -207,7 +325,7 @@ Role:
 
 ### Browser demo (participant-like)
 
-1. marimo builds a timeline via `build_motion_demo_timeline()` using slider levels A/B/C and user dot lifetime.
+1. marimo builds a timeline via `build_motion_demo_timeline()` (`ExperimentGenerator` + per-level `FactorTrialGenerator` blocks) using slider levels A/B/C and user dot lifetime.
 2. `build_jspsych_runner_html(timeline, config=motion_demo_runner_config())` inlines HTML/CSS/JS assets.
 3. `render_srcdoc_iframe()` embeds the runner; user clicks **Restart demo** to rebuild with fresh random directions.
 4. Boot script decodes timeline + config; `JsPsychRunnerCore` binds plugins and runs jsPsych.
@@ -219,8 +337,8 @@ Role:
 ### Python simulation + HSSM
 
 1. marimo UI collects task and observer parameters.
-2. `make_motion_coherence_trials()` (in `coherence_app.py`) creates trials with random left/right and `stimulus_params`.
-3. `NAfcObserver.choose()` builds latent evidence, choice, and RT (explicit lapse path).
+2. Per condition level, `make_motion_coherence_trials()` returns a `FactorTrialGenerator` block; blocks are attached to an `ExperimentGenerator`, which serves trials with merged experiment `display_params` / `data_output_path` when set.
+3. `NAfcObserver.choose(stimulus_factors)` builds latent evidence, choice, and RT (explicit lapse path).
 4. tabular data is assembled for modeling.
 5. user triggers HSSM fit with dedicated run control.
 6. summaries and charts are rendered in-app (including model cartoon).
@@ -229,19 +347,25 @@ Role:
 
 Use these boundaries when adding new functionality:
 
-- **New task types**: add simulator classes/functions under `tasks/`
+- **New task types**: add simulator classes/functions under `schemas/`
 - **New stimuli modalities**: add preview/render helpers under `renderers/`
-- **New observer/input sources**: add classes under `agents/` and keep choice/RT coupled to the same latent signal model when possible
+- **New observer/input sources**: add classes under `observers/` and keep choice/RT coupled to the same latent signal model when possible
 - **New analysis models**: add model-specific fit/plot helpers under `analysis/`
 
 Prefer data contracts (plain dict/dataframe schemas) between modules over direct cross-calls to keep components interchangeable.
 
 ## Data Contracts (Current)
 
+Experiment-level (`ExperimentParams`):
+
+- `display_params` — defaults merged into each trial's `display_params` by `ExperimentGenerator`
+- `data_output_path` — optional; copied into each trial's `data` as `data_output_path` when set
+
 Trial-level fields currently used by the pipeline:
 
 - `task`
-- `stimulus_params` (experiment / presentation parameters)
+- `stimulus_factors` (experiment factors controlling the stimulus)
+- `display_params` (presentation/display parameters)
 - `presentation_duration_ms` (`None` = unlimited until response)
 - `correct_index`
 - jsPsych metadata fields (`choices`, `correct_key`, nested `data`, etc.)
@@ -259,4 +383,4 @@ Any new task module should document equivalent fields and provide a normalizatio
 
 ## Packaging Notes
 
-The project follows a split-by-concern layout (`tasks/`, `renderers/`, `agents/`, `analysis/`, `schemas/`) with `apps/` housing marimo entrypoints.
+The project follows a split-by-concern layout (`schemas/`, `renderers/`, `observers/`, `analysis/`) with `experiments/` housing marimo entrypoints.

@@ -7,12 +7,12 @@ from schemas.contracts import Trial
 
 
 def _motion_coherence(tr: Trial) -> float:
-    params = tr["stimulus_params"]
+    params = tr["stimulus_factors"]
     return float(params.get("coherence", params.get("stim_level", 0.0)))
 
 
 def _motion_param(tr: Trial, key: str, default: object) -> object:
-    return tr["stimulus_params"].get(key, default)
+    return tr["display_params"].get(key, default)
 
 
 MOTION_SCORING_ON_FINISH = (
@@ -41,7 +41,12 @@ def build_motion_keyboard_trial(
 ) -> dict[str, object]:
     """Convert one motion trial contract into a jsPsych html-keyboard-response trial."""
     correct_index = int(tr["correct_index"])
-    direction = str(_motion_param(tr, "motion_direction", "right"))
+    direction = str(
+        tr["stimulus_factors"].get(
+            "motion_direction",
+            tr["data"].get("motion_direction", "right"),
+        )
+    )
     duration_ms = tr["presentation_duration_ms"]
     if duration_ms is None:
         duration_ms = trial_duration_ms

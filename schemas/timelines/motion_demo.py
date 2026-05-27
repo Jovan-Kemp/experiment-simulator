@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from runtime.jspsych_runner import RunnerConfig
-from tasks.jspsych_timeline import motion_to_jspsych_timeline
-from tasks.trial_generator import FactorTrialGenerator
-
-if TYPE_CHECKING:
-    from tasks.trial_generator import FactorTrialGenerator as _FactorTrialGenerator
+from schemas.experimentGenerator import ExperimentGenerator
+from schemas.jspsych_timeline import motion_to_jspsych_timeline
+from schemas.trial_generator import FactorTrialGenerator
 
 INTRO_TRIAL: dict[str, object] = {
     "type": "html-button-response",
@@ -86,25 +83,27 @@ def build_motion_demo_levels(
 def build_motion_demo_timeline(
     demo_levels: list[tuple[str, float]],
     *,
-    stimulus_params: dict[str, object],
-    make_motion_coherence_trials: Callable[..., _FactorTrialGenerator],
+    display_params: dict[str, object],
+    make_motion_coherence_trials: Callable[..., FactorTrialGenerator],
     presentation_duration_ms: int | None = None,
 ) -> list[dict[str, object]]:
     """Build intro -> countdown -> motion trials (+ feedback) for the marimo demo."""
-    demo_generator = FactorTrialGenerator()
+    experiment = ExperimentGenerator(
+        experiment_params={"display_params": dict(display_params)},
+    )
     for idx, (label, level) in enumerate(demo_levels, start=1):
         block = make_motion_coherence_trials(
             n_trials=1,
             coherence=level,
-            stimulus_params=stimulus_params,
             presentation_duration_ms=presentation_duration_ms,
         )
         trial = block.all_trials()[0]
         trial["data"]["label"] = label
         trial["data"]["trial_num"] = idx
-        demo_generator.add_trial(trial)
+        single_trial = FactorTrialGenerator([trial])
+        experiment.add_trial_generator(single_trial)
 
-    motion_trials = motion_to_jspsych_timeline(demo_generator.all_trials())  # type: ignore[arg-type]
+    motion_trials = motion_to_jspsych_timeline(experiment.all_trials())  # type: ignore[arg-type]
     timeline: list[dict[str, object]] = [INTRO_TRIAL, *COUNTDOWN_TRIALS]
     for trial in motion_trials:
         timeline.extend([trial, FEEDBACK_TRIAL])

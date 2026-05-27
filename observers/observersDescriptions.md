@@ -1,6 +1,6 @@
 # Agent descriptions
 
-Plain-language notes for virtual observers under `agents/`. Each section includes a flowchart aligned with the implementation.
+Plain-language notes for virtual observers under `observers/`. Each section includes a flowchart aligned with the implementation.
 
 ---
 
@@ -10,7 +10,7 @@ Virtual n-AFC observer: one trial in, `(choice_index, rt)` out. Decision and non
 
 ### Overview
 
-- **Inputs per trial:** `stimulus_params`, `ndt`
+- **Inputs per trial:** `stimulus_factors`, `ndt`
 - **`stimulus_to_strengths`** maps experiment params to latent `stim_strengths` inside the observer
 - **`evidence_weight`** (observer parameter; all ones = no bias) multiplies latent strengths before noise
 - **Output:** `(choice_index, rt)`

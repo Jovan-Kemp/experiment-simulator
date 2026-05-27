@@ -59,19 +59,21 @@ class FactorTrialGenerator(TrialGenerator):
     def generate_trials(
         *,
         task: str,
-        stimulus_params: dict[str, object],
+        stimulus_factors: dict[str, object],
+        display_params: dict[str, object],
         presentation_duration_ms: int | None,
         correct_index: int,
         choices: list[str],
         correct_key: str,
         data: dict[str, object] | None = None,
     ) -> Trial:
-        """Build one trial parameter dict (stimulus side only)."""
+        """Build one trial parameter dict."""
         trial_data = dict(data or {})
         trial_data.setdefault("task", task)
         return {
             "task": task,
-            "stimulus_params": dict(stimulus_params),
+            "stimulus_factors": dict(stimulus_factors),
+            "display_params": dict(display_params),
             "presentation_duration_ms": presentation_duration_ms,
             "correct_index": int(correct_index),
             "choices": list(choices),

@@ -3,17 +3,30 @@ from __future__ import annotations
 from typing import TypedDict
 
 
+class ExperimentParams(TypedDict, total=False):
+    """Experiment-wide settings applied when serving trials from an ``ExperimentGenerator``.
+
+    ``display_params`` are merged into each trial (trial keys override experiment defaults).
+    ``data_output_path`` is attached to each trial's ``data`` dict when set.
+    """
+
+    display_params: dict[str, object]
+    data_output_path: str
+
+
 class Trial(TypedDict):
     """Task-agnostic trial contract for human and simulated runs.
 
-    ``stimulus_params`` holds experiment / presentation parameters only.
-    Latent ``stim_strengths`` for the observer are derived inside the observer
-    from ``stimulus_params``, not stored on the trial.
+    ``stimulus_factors`` holds experimental factors that control the stimulus.
+    ``display_params`` holds rendering/presentation parameters.
+    Latent ``stim_strengths`` for the observer are derived from
+    ``stimulus_factors`` inside the observer, not stored on the trial.
     ``presentation_duration_ms`` is ``None`` for unlimited (response-terminated).
     """
 
     task: str
-    stimulus_params: dict[str, object]
+    stimulus_factors: dict[str, object]
+    display_params: dict[str, object]
     presentation_duration_ms: int | None
     correct_index: int
     choices: list[str]

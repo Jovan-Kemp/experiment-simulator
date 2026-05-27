@@ -12,9 +12,9 @@ StimulusToStrengthsFn = Callable[[dict[str, object]], list[float]]
 
 @dataclass(frozen=True)
 class NAfcObserver:
-    """Virtual n-AFC observer operating on experiment ``stimulus_params``.
+    """Virtual n-AFC observer operating on experiment ``stimulus_factors``.
 
-    Derives latent ``stim_strengths`` from ``stimulus_params`` via
+    Derives latent ``stim_strengths`` from ``stimulus_factors`` via
     ``stimulus_to_strengths``. ``evidence_weight`` is an observer-side
     per-alternative multiplier (all ones = no directional bias).
 
@@ -41,13 +41,13 @@ class NAfcObserver:
     def _rng(self) -> np.random.Generator:
         return self.rng if self.rng is not None else np.random.default_rng()
 
-    def latent_strengths(self, stimulus_params: dict[str, object]) -> list[float]:
+    def latent_strengths(self, stimulus_factors: dict[str, object]) -> list[float]:
         """Derive per-alternative latent strengths from experiment parameters."""
         if self.stimulus_to_strengths is None:
             raise ValueError(
                 "stimulus_to_strengths must be set to derive latent strengths"
             )
-        return list(self.stimulus_to_strengths(stimulus_params))
+        return list(self.stimulus_to_strengths(stimulus_factors))
 
     def _resolve_evidence_weight(self, n_alternatives: int) -> np.ndarray:
         if self.evidence_weight is None:
@@ -126,22 +126,30 @@ class NAfcObserver:
         base = float(ndt) + float(self.rt_scale)
         return max(0.05, base + rng.normal(0.0, float(self.rt_noise)))
 
-    def choose(
+    def _choice_and_rt(
         self,
-        stimulus_params: dict[str, object],
+        evidence_weight: list[float] | np.ndarray,
+        stim_strengths: list[float] | np.ndarray,
         ndt: float,
     ) -> tuple[int, float]:
-        """Choose alternative index and return response time from experiment params."""
-        stim_strengths = self.latent_strengths(stimulus_params)
-        evidence_weight = self._resolve_evidence_weight(len(stim_strengths))
         choice_index, evidence, is_lapse = self._decision_process(
             evidence_weight=evidence_weight, stim_strengths=stim_strengths
         )
         if is_lapse:
-            rt = self._lapse_reaction_time(ndt=ndt)
-        else:
-            rt = self._reaction_time(evidence=evidence, choice_index=choice_index, ndt=ndt)
-        return choice_index, rt
+            return choice_index, self._lapse_reaction_time(ndt=ndt)
+        return choice_index, self._reaction_time(
+            evidence=evidence, choice_index=choice_index, ndt=ndt
+        )
+
+    def choose(
+        self,
+        stimulus_factors: dict[str, object],
+        ndt: float,
+    ) -> tuple[int, float]:
+        """Choose alternative index and return response time from experiment params."""
+        stim_strengths = self.latent_strengths(stimulus_factors)
+        weight = self._resolve_evidence_weight(len(stim_strengths))
+        return self._choice_and_rt(weight, stim_strengths, ndt)
 
     def choose_from_latent(
         self,
@@ -150,11 +158,4 @@ class NAfcObserver:
         ndt: float,
     ) -> tuple[int, float]:
         """Choose directly from precomputed latent arrays (advanced / testing)."""
-        choice_index, evidence, is_lapse = self._decision_process(
-            evidence_weight=evidence_weight, stim_strengths=stim_strengths
-        )
-        if is_lapse:
-            rt = self._lapse_reaction_time(ndt=ndt)
-        else:
-            rt = self._reaction_time(evidence=evidence, choice_index=choice_index, ndt=ndt)
-        return choice_index, rt
+        return self._choice_and_rt(evidence_weight, stim_strengths, ndt)

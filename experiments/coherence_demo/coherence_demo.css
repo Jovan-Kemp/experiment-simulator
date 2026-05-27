@@ -1,0 +1,100 @@
+/* Marimo UI styles for the coherence_demo marimo notebook. */
+
+.coherence-demo-logo-block {
+  background: #ffffff;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  display: inline-block;
+  line-height: 0;
+  max-width: 240px;
+}
+
+.coherence-demo-logo-block img {
+  display: block;
+  box-sizing: border-box;
+  height: 80px;
+  max-height: 80px;
+  max-width: 100%;
+  width: auto;
+  object-fit: contain;
+}
+
+.coherence-demo-simulator-info {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  max-width: 100%;
+}
+
+.coherence-demo-simulator-info details {
+  position: relative;
+  margin: 0;
+}
+
+.coherence-demo-simulator-info summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.coherence-demo-simulator-info summary::-webkit-details-marker {
+  display: none;
+}
+
+.coherence-demo-simulator-info__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.coherence-demo-simulator-info__panel {
+  position: absolute;
+  left: calc(100% + 0.4rem);
+  top: 0;
+  z-index: 1000;
+  min-width: 18rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.65rem 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  text-align: left;
+}
+
+.coherence-demo-simulator-info__panel p {
+  margin: 0 0 0.5rem 0;
+}
+
+.coherence-demo-simulator-info__panel p:last-child {
+  margin: 0;
+}
+
+.coherence-demo-hssm-chain-warning {
+  font-size: 0.85rem;
+  color: #92400e;
+  margin-top: 0.15rem;
+}
+
+.coherence-demo-cartoon-img {
+  width: 50%;
+  max-width: 50%;
+  height: auto;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}

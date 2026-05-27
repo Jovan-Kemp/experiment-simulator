@@ -13,13 +13,13 @@ It is organized as a modular workflow that combines:
 From this directory:
 
 ```bash
-uv run marimo run apps/coherence_app.py
+uv run marimo run experiments/coherence_demo/coherence_demo.py
 ```
 
 Or open it in the editor:
 
 ```bash
-uv run marimo edit apps/coherence_app.py
+uv run marimo edit experiments/coherence_demo/coherence_demo.py
 ```
 
 ### Notes

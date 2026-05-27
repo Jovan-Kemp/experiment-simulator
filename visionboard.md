@@ -15,12 +15,12 @@ At a high level, the system is designed to support:
 
 The architecture separates concerns so pieces can be swapped without rewriting the full workflow:
 
-- `tasks/` defines trial structure and experiment logic
+- `schemas/` defines contracts, trial structure, and experiment organization
 - `renderers/` defines stimulus display helpers and preview behavior
-- `agents/` defines observer behavior for synthetic data generation
+- `observers/` defines observer behavior for synthetic data generation
 - `runtime/` executes jsPsych timelines in browser-compatible form
 - `analysis/` holds model fitting and descriptive statistics
-- `apps/` orchestrates controls, execution flow, and visualization
+- `experiments/` orchestrates controls, execution flow, and visualization
 
 The key idea is **interchangeability**:
 - new tasks should plug into the same run/fit pipeline
@@ -29,6 +29,8 @@ The key idea is **interchangeability**:
 - analysis should remain decoupled from task implementation details
 
 ## Current Working Flow
+
+See the mermaid pipeline flowchart in [DOCUMENTATION.md](DOCUMENTATION.md#pipeline-flowchart) (trials → Observer vs participant → descriptive summaries → HSSM fit).
 
 1. User explores live motion previews (coherence A/B/C sliders, adjustable dot lifetime).
 2. User runs the jsPsych demo (intro → countdown → motion trials with feedback → in-iframe result charts); **Restart demo** rebuilds the iframe.
@@ -52,22 +54,22 @@ Evolve from a single demo into a reusable experiment framework where task templa
 
 ## Immediate TODO
 
-- Add a task registry API so new paradigms can be selected and launched without editing `apps/coherence_app.py`.
-- Define a shared trial/result adapter interface between `tasks/`, `runtime/`, and `analysis/` to reduce task-specific glue code.
+- Add a task registry API so new paradigms can be selected and launched without editing `experiments/coherence_demo/coherence_demo.py`.
+- Define a shared trial/result adapter interface between `schemas/`, `runtime/`, and `analysis/` to reduce task-specific glue code.
 - Implement persistent run-state management in the app (simulation complete, fit complete, last dataset) so workflows are explicit and recoverable.
 - Ingest human jsPsych results (`postMessage` -> dataframe schema) parallel to the simulated observer path.
 - Expand `analysis/` with reusable report builders (summary tables + standard plots) independent of any single task.
-- Add validation tests for `agents/evidence_observer.py`, `tasks/trial_generator.py`, and `analysis/descriptive_stats.py` to lock in expected behavior.
+- Add validation tests for `observers/evidence_observer.py`, `schemas/trial_generator.py`, and `analysis/descriptive_stats.py` to lock in expected behavior.
 - Add a second task prototype (non-motion or multi-choice variant) to verify interchangeability claims in practice.
 - Provide environment profile docs/scripts for reproducible setup across Linux variants (system deps + Python/uv workflow).
 - Add lightweight CI checks (import/syntax/tests) so modular refactors stay safe as components grow.
-- Create a configurable app shell in `apps/` so multiple demos/tasks can share common controls, run buttons, and plotting layout.
+- Create a configurable app shell in `experiments/` so multiple demos/tasks can share common controls, run buttons, and plotting layout.
 
 ## Current Observer Notes
 
 The evidence observer path is anchored on an evidence-based decision rule with explicit separations between latent evidence generation, lapse behavior, and RT construction.
 
-- Trial encoding for binary motion: `motion_stimulus_to_strengths` in `coherence_app.py` maps experiment params to observer latent strengths.
+- Trial encoding for binary motion: `motion_stimulus_to_strengths` in `coherence_demo/coherence_demo.py` maps experiment params to observer latent strengths.
 - `evidence_weight=(1,1)` on the observer means no directional bias.
 - Sensory noise is difficulty-scaled in the default evidence model (`coherence = max(stim_strengths)`, noise uses `1 - coherence`).
 - Observer noise is parameterized by `sigma0` (noise floor) and `sigma_scale` (difficulty slope).
@@ -92,13 +94,13 @@ Motion display parameters:
 
 - **Speed**: pixels per second via `data-speed-px-s` (not per-frame), for cross-browser consistency.
 - **Canvas**: fixed pixel dimensions in HTML/CSS (no responsive resize).
-- **Dot lifetime**: user-adjustable in `coherence_app.py`; dots respawn after lifetime expiry or leaving the aperture.
-- **App-specific defaults** (canvas size, dot count, speed, seed) live in `coherence_app.py`; passed via each trial's `stimulus_params`.
+- **Dot lifetime**: user-adjustable in `coherence_demo/coherence_demo.py`; dots respawn after lifetime expiry or leaving the aperture.
+- **App-specific defaults** (canvas size, dot count, speed, seed) live in `coherence_demo/coherence_demo.py`; passed via each trial's `display_params`.
 
 Trial generation architecture:
 
-- Generic `Trial` contract: `stimulus_params` and presentation timing only (no latent evidence on trial).
-- Abstract `TrialGenerator` stores trial parameter dicts with `next_trial()` / `reset()`; `FactorTrialGenerator` is the concrete factorial/list implementation.
+- Generic `Trial` contract: `stimulus_factors` + `display_params` + presentation timing only (no latent evidence on trial).
+- `TrialGenerator` / `FactorTrialGenerator` build and iterate trial blocks; `ExperimentGenerator` holds experiment params (display defaults, data output path) and multiple trial-generator blocks.
 - Observer hyperparameters (`sigma0`, lapse, RT scale, …) remain on `NAfcObserver` only.
 
 Recent alignment with this model:

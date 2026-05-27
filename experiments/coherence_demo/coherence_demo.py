@@ -1,24 +1,29 @@
 import marimo
 
-# Ensure project root is importable when running via `marimo run apps/coherence_app.py`.
+# Ensure project root is importable when running via
+# `marimo run experiments/coherence_demo/coherence_demo.py`.
 import sys
 from pathlib import Path
 
-ROOT = str(Path(__file__).resolve().parents[1])
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+def resolve_repo_paths() -> tuple[Path, Path]:
+    """Locate ``experiments/coherence_demo`` and repo root (marimo-safe)."""
+    for candidate in (Path.cwd(), *Path.cwd().parents):
+        app_dir = candidate / "experiments" / "coherence_demo"
+        if (
+            app_dir.is_dir()
+            and (candidate / "schemas").is_dir()
+            and (candidate / "observers").is_dir()
+        ):
+            return app_dir, candidate
+    app_dir = Path(__file__).resolve().parent
+    return app_dir, app_dir.parents[2]
 
-app = marimo.App(width="full")
 
+_APP_DIR, _PROJECT_ROOT = resolve_repo_paths()
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-@app.cell
-def _():
-    import numpy as np
-    import pandas as pd
-
-    import marimo as mo
-
-    return mo, np, pd
+app = marimo.App(width="full", css_file="coherence_demo.css")
 
 
 @app.cell
@@ -26,14 +31,34 @@ def _():
     import sys
     from pathlib import Path
 
-    # Ensure module folders (agents/, tasks/, etc.) are importable regardless
-    # of marimo launch cwd/cell execution order.
-    candidates = [Path.cwd(), Path(__file__).resolve().parents[1]]
-    for root in candidates:
-        if (root / "agents").exists() and str(root) not in sys.path:
-            sys.path.insert(0, str(root))
+    import numpy as np
+    import pandas as pd
+    import marimo as mo
 
-    from agents.evidence_observer import NAfcObserver
+    for candidate in (Path.cwd(), *Path.cwd().parents):
+        _app_dir = candidate / "experiments" / "coherence_demo"
+        if (
+            _app_dir.is_dir()
+            and (candidate / "schemas").is_dir()
+            and (candidate / "observers").is_dir()
+        ):
+            app_dir, project_root = _app_dir, candidate
+            break
+    else:
+        raise RuntimeError(
+            "Could not find repo root (need schemas/ and observers/). "
+            "Run marimo from the simulator project directory."
+        )
+
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    return mo, np, pd, app_dir, project_root
+
+
+@app.cell
+def _(mo, project_root):
+    from observers.evidence_observer import NAfcObserver
     from analysis.hssm_pipeline import (
         fit_hssm_model,
         summarize_behavior,
@@ -42,23 +67,25 @@ def _():
     from renderers.jspsych_preview import motion_coherence_preview_iframe_html
     from runtime.embed import render_srcdoc_iframe
     from runtime.jspsych_runner import build_jspsych_runner_html
-    from tasks.trial_generator import FactorTrialGenerator
-    from tasks.timelines.motion_demo import (
+    from schemas.experimentGenerator import ExperimentGenerator
+    from schemas.trial_generator import FactorTrialGenerator
+    from schemas.timelines.motion_demo import (
         build_motion_demo_levels,
         build_motion_demo_timeline,
         motion_demo_runner_config,
     )
 
     return (
+        ExperimentGenerator,
         FactorTrialGenerator,
         NAfcObserver,
-        Path,
         build_jspsych_runner_html,
         build_motion_demo_levels,
         build_motion_demo_timeline,
         fit_hssm_model,
         motion_coherence_preview_iframe_html,
         motion_demo_runner_config,
+        project_root,
         render_srcdoc_iframe,
         summarize_behavior,
         summarize_posterior,
@@ -66,20 +93,20 @@ def _():
 
 
 @app.cell
-def _(Path, mo):
+def _(mo, project_root):
     import base64
 
-    logo_path = Path(__file__).resolve().parents[1] / "assets" / "logo" / "hssm_white.png"
-    logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    logo_b64 = base64.b64encode(
+        (project_root / "assets" / "logo" / "hssm_white.png").read_bytes()
+    ).decode("ascii")
     logo_block = mo.Html(
-        f'<div style="background:#ffffff;padding:1rem 1.25rem;border-radius:8px;">'
-        f'<img alt="HSSM" src="data:image/png;base64,{logo_b64}" '
-        f'style="max-height:80px;width:auto;display:block;" />'
+        f'<div class="coherence-demo-logo-block">'
+        f'<img alt="HSSM" src="data:image/png;base64,{logo_b64}" />'
         f"</div>"
     )
     intro = mo.md(
         r"""
-## Demonstration with of simulated experiment to HSSM pipeline with motion coherence paradigm
+## Demonstration of simulated experiment to HSSM pipeline with motion coherence paradigm
 
 This example simulates a **binary left/right motion task** at **three coherence levels** you set with the sliders (shown side-by-side).
 
@@ -115,11 +142,11 @@ def _():
 
 @app.cell
 def _(FactorTrialGenerator, np):
-    def motion_stimulus_to_strengths(stimulus_params: dict[str, object]) -> list[float]:
+    def motion_stimulus_to_strengths(stimulus_factors: dict[str, object]) -> list[float]:
         coherence = float(
-            stimulus_params.get("coherence", stimulus_params.get("stim_level", 0.0))
+            stimulus_factors.get("coherence", stimulus_factors.get("stim_level", 0.0))
         )
-        direction = str(stimulus_params.get("motion_direction", "right"))
+        direction = str(stimulus_factors.get("motion_direction", "right"))
         if direction == "left":
             return [coherence, 0.0]
         return [0.0, coherence]
@@ -128,32 +155,23 @@ def _(FactorTrialGenerator, np):
         *,
         n_trials: int,
         coherence: float,
-        stimulus_params: dict[str, object] | None = None,
+        display_params: dict[str, object] | None = None,
         presentation_duration_ms: int | None = None,
         rng: np.random.Generator | None = None,
     ) -> FactorTrialGenerator:
-        random = rng if rng is not None else np.random.default_rng()
-        n = int(n_trials)
-        dirs = random.choice([-1, 1], size=n)
+        random = rng or np.random.default_rng()
         level = float(coherence)
-        base_params: dict[str, object] = dict(stimulus_params or {})
-        base_params.setdefault("coherence", level)
-
+        base_display = dict(display_params or {})
         generator = FactorTrialGenerator()
-        for d in dirs:
-            stim_dir = int(d)
-            motion = "left" if stim_dir < 0 else "right"
-            correct_index = 0 if motion == "left" else 1
-            correct_key = "ArrowLeft" if correct_index == 0 else "ArrowRight"
-            params = {
-                **base_params,
-                "coherence": level,
-                "motion_direction": motion,
-            }
+        for d in random.choice([-1, 1], size=int(n_trials)):
+            motion = "left" if d < 0 else "right"
+            correct_index = int(motion == "right")
+            correct_key = "ArrowRight" if correct_index else "ArrowLeft"
             generator.add_trial(
                 FactorTrialGenerator.generate_trials(
                     task="motion_coherence",
-                    stimulus_params=params,
+                    stimulus_factors={"coherence": level, "motion_direction": motion},
+                    display_params=base_display,
                     presentation_duration_ms=presentation_duration_ms,
                     correct_index=correct_index,
                     choices=["ArrowLeft", "ArrowRight"],
@@ -291,7 +309,7 @@ def _(
     }
     demo_timeline = build_motion_demo_timeline(
         demo_levels,
-        stimulus_params=_stimulus_params,
+        display_params=_stimulus_params,
         presentation_duration_ms=None,
         make_motion_coherence_trials=make_motion_coherence_trials,
     )
@@ -388,36 +406,23 @@ def _(
 ):
     simulator_info_row = mo.Html(
         """
-<div style="display:inline-flex;align-items:flex-start;gap:0.4rem;max-width:100%;">
-  <details style="position:relative;margin:0;">
-    <summary
-      aria-label="How the simulated observer works"
-      style="cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:0.35rem;
-        font-weight:600;color:inherit;"
-    >
+<div class="coherence-demo-simulator-info">
+  <details>
+    <summary aria-label="How the simulated observer works">
       <span>Simulator Info</span>
-      <span
-        style="display:inline-flex;align-items:center;justify-content:center;width:1.35rem;
-          height:1.35rem;border:1px solid #cbd5e1;border-radius:999px;font-size:0.8rem;
-          font-weight:600;color:#64748b;background:#f8fafc;"
-      >?</span>
+      <span class="coherence-demo-simulator-info__badge">?</span>
     </summary>
-    <div
-      style="position:absolute;left:calc(100% + 0.4rem);top:0;z-index:1000;min-width:18rem;
-        max-width:min(22rem,calc(100vw - 2rem));padding:0.65rem 0.75rem;font-size:0.82rem;
-        line-height:1.45;color:#0f172a;background:#fff;border:1px solid #cbd5e1;border-radius:6px;
-        box-shadow:0 4px 12px rgba(15,23,42,0.12);text-align:left;"
-    >
-      <p style="margin:0 0 0.5rem 0;"><strong>Experiment.</strong> For each participant, the app
+    <div class="coherence-demo-simulator-info__panel">
+      <p><strong>Experiment.</strong> For each participant, the app
       runs every combination of the three coherence levels (A/B/C) and your chosen trial count.
       Each trial is a binary left/right motion discrimination with random direction, using the
       same side-strength encoding as the browser demo.</p>
-      <p style="margin:0 0 0.5rem 0;"><strong>Observer.</strong> Responses are generated by
+      <p><strong>Observer.</strong> Responses are generated by
       <code>NAfcObserver</code>: per-alternative evidence is <em>weight × strength + noise</em>,
       with noise increasing as coherence decreases; choices follow a lapse draw or
       <code>argmax</code> on evidence; RT uses non-decision time plus a term inversely related
       to the evidence margin (or a lapse RT path).</p>
-      <p style="margin:0;"><strong>Output.</strong> Run simulation builds a trial-level table
+      <p><strong>Output.</strong> Run simulation builds a trial-level table
       (accuracy, RT in s) used by the summary table, plots, and (after fitting) HSSM.</p>
     </div>
   </details>
@@ -450,6 +455,7 @@ def _(
 
 @app.cell
 def _(
+    ExperimentGenerator,
     NAfcObserver,
     make_motion_coherence_trials,
     motion_stimulus_to_strengths,
@@ -471,8 +477,7 @@ def _(
 ):
     mo.stop(not run_sim.value)
 
-    condition_levels = [float(lvl1.value), float(lvl2.value), float(lvl3.value)]
-    condition_levels = [max(0.0, c) for c in condition_levels]
+    condition_levels = [max(0.0, float(s.value)) for s in (lvl1, lvl2, lvl3)]
 
     nT = max(10, min(300, int(n_trials.value or 100)))
     nS = max(1, min(30, int(n_observers.value or 3)))
@@ -492,29 +497,33 @@ def _(
             stimulus_to_strengths=motion_stimulus_to_strengths,
             rng=obs_rng,
         )
+        experiment = ExperimentGenerator()
         for level in condition_levels:
-            trial_gen = make_motion_coherence_trials(
-                n_trials=nT,
-                coherence=level,
-                rng=rng,
+            experiment.add_trial_generator(
+                make_motion_coherence_trials(
+                    n_trials=nT,
+                    coherence=level,
+                    rng=rng,
+                )
             )
-            while trial_gen.has_next():
-                tr = trial_gen.next_trial()
-                choice_index, rt = obs.choose(
-                    tr["stimulus_params"],
-                    ndt=float(ndt.value),
+        while experiment.has_next_trial():
+            tr = experiment.next_trial()
+            stim_level = float(tr["data"].get("stim_level", 0.0))
+            choice_index, rt = obs.choose(
+                tr["stimulus_factors"],
+                ndt=float(ndt.value),
+            )
+            response = -1 if int(choice_index) == 0 else 1
+            rows.append(
+                dict(
+                    subj=subj,
+                    stim_level=stim_level,
+                    choice_index=int(choice_index),
+                    response=int(response),
+                    rt=float(rt),
+                    correct=int(int(choice_index) == int(tr["correct_index"])),
                 )
-                response = -1 if int(choice_index) == 0 else 1
-                rows.append(
-                    dict(
-                        subj=subj,
-                        stim_level=level,
-                        choice_index=int(choice_index),
-                        response=int(response),
-                        rt=float(rt),
-                        correct=int(int(choice_index) == int(tr["correct_index"])),
-                    )
-                )
+            )
 
     df = pd.DataFrame(rows)
     df
@@ -618,7 +627,7 @@ def _(df, fit_chains, fit_draws, fit_tune, mo, fit_hssm_model, run_fit, summariz
     if int(fit_chains.value) < 2:
         _blocks.append(
             mo.Html(
-                '<div style="font-size:0.85rem;color:#92400e;margin-top:0.15rem;">'
+                '<div class="coherence-demo-hssm-chain-warning">'
                 "Note: convergence diagnostics like <code>r_hat</code> require at least 2 chains; "
                 "current fit used 1 chain."
                 "</div>"
@@ -654,14 +663,8 @@ def _(df, idata, mo, model):
         xlabel="Response time (s)",
     )
 
-    if isinstance(_ax_or_grid, list) and _ax_or_grid:
-        _obj = _ax_or_grid[0]
-    else:
-        _obj = _ax_or_grid
-
-    _fig = getattr(_obj, "figure", None)
-    if _fig is None:
-        _fig = getattr(_obj, "fig", None)
+    _obj = _ax_or_grid[0] if isinstance(_ax_or_grid, list) and _ax_or_grid else _ax_or_grid
+    _fig = getattr(_obj, "figure", None) or getattr(_obj, "fig", None)
     if _fig is None and hasattr(_obj, "get_figure"):
         _fig = _obj.get_figure()
     if _fig is None:
@@ -693,8 +696,8 @@ def _(df, idata, mo, model):
     _buf.seek(0)
     _b64 = _base64.b64encode(_buf.read()).decode("ascii")
     _img = mo.Html(
-        f'<img alt="HSSM model cartoon" src="data:image/png;base64,{_b64}" '
-        'style="width:50%;max-width:50%;height:auto;border:1px solid #ddd;border-radius:6px;" />'
+        f'<img class="coherence-demo-cartoon-img" alt="HSSM model cartoon" '
+        f'src="data:image/png;base64,{_b64}" />'
     )
     _out = mo.vstack([mo.md("### HSSM model cartoon"), _img], gap=0.5)
     _out
@@ -703,4 +706,3 @@ def _(df, idata, mo, model):
 
 if __name__ == "__main__":
     app.run()
-
