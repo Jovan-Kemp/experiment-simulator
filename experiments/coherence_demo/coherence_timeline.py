@@ -52,8 +52,8 @@ FEEDBACK_TRIAL: dict[str, object] = {
 }
 
 
-def motion_demo_runner_config(*, title: str = "jsPsych Demo") -> RunnerConfig:
-    """Runner settings for the motion coherence iframe demo."""
+def coherence_runner_config(*, title: str = "jsPsych Demo") -> RunnerConfig:
+    """Runner settings for the coherence demo iframe."""
     return RunnerConfig(
         title=title,
         plugins=("html-keyboard-response", "html-button-response"),
@@ -64,7 +64,7 @@ def motion_demo_runner_config(*, title: str = "jsPsych Demo") -> RunnerConfig:
     )
 
 
-def build_motion_demo_levels(
+def build_coherence_demo_levels(
     level_a: float,
     level_b: float,
     level_c: float,
@@ -80,7 +80,7 @@ def build_motion_demo_levels(
     ]
 
 
-def build_motion_demo_timeline(
+def build_coherence_timeline(
     demo_levels: list[tuple[str, float]],
     *,
     display_params: dict[str, object],
@@ -100,8 +100,7 @@ def build_motion_demo_timeline(
         trial = block.all_trials()[0]
         trial["data"]["label"] = label
         trial["data"]["trial_num"] = idx
-        single_trial = FactorTrialGenerator([trial])
-        experiment.add_trial_generator(single_trial)
+        experiment.add_trial_generator(FactorTrialGenerator([trial]))
 
     motion_trials = motion_to_jspsych_timeline(experiment.all_trials())  # type: ignore[arg-type]
     timeline: list[dict[str, object]] = [INTRO_TRIAL, *COUNTDOWN_TRIALS]

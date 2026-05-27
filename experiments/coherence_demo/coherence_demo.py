@@ -52,6 +52,8 @@ def _():
 
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+    if str(app_dir) not in sys.path:
+        sys.path.insert(0, str(app_dir))
 
     return mo, np, pd, app_dir, project_root
 
@@ -69,22 +71,22 @@ def _(mo, project_root):
     from runtime.jspsych_runner import build_jspsych_runner_html
     from schemas.experimentGenerator import ExperimentGenerator
     from schemas.trial_generator import FactorTrialGenerator
-    from schemas.timelines.motion_demo import (
-        build_motion_demo_levels,
-        build_motion_demo_timeline,
-        motion_demo_runner_config,
+    from coherence_timeline import (
+        build_coherence_demo_levels,
+        build_coherence_timeline,
+        coherence_runner_config,
     )
 
     return (
         ExperimentGenerator,
         FactorTrialGenerator,
         NAfcObserver,
+        build_coherence_demo_levels,
+        build_coherence_timeline,
         build_jspsych_runner_html,
-        build_motion_demo_levels,
-        build_motion_demo_timeline,
+        coherence_runner_config,
         fit_hssm_model,
         motion_coherence_preview_iframe_html,
-        motion_demo_runner_config,
         project_root,
         render_srcdoc_iframe,
         summarize_behavior,
@@ -277,9 +279,9 @@ def _(
     MOTION_N_DOTS,
     MOTION_SEED,
     MOTION_SPEED_PX_S,
-    build_motion_demo_levels,
+    build_coherence_demo_levels,
+    build_coherence_timeline,
     build_jspsych_runner_html,
-    build_motion_demo_timeline,
     demo_restart,
     demo_trials_per_level,
     dot_lifetime_s,
@@ -288,7 +290,7 @@ def _(
     lvl3,
     make_motion_coherence_trials,
     mo,
-    motion_demo_runner_config,
+    coherence_runner_config,
     render_srcdoc_iframe,
 ):
     _ = demo_restart.value
@@ -297,7 +299,7 @@ def _(
     b = max(0.0, min(1.0, float(lvl2.value)))
     c = max(0.0, min(1.0, float(lvl3.value)))
     reps = max(1, min(20, int(demo_trials_per_level.value or 5)))
-    demo_levels = build_motion_demo_levels(a, b, c, reps_per_level=reps)
+    demo_levels = build_coherence_demo_levels(a, b, c, reps_per_level=reps)
     n_motion = len(demo_levels)
     _stimulus_params = {
         "n_dots": MOTION_N_DOTS,
@@ -307,7 +309,7 @@ def _(
         "canvas_height": MOTION_CANVAS_HEIGHT,
         "seed": MOTION_SEED,
     }
-    demo_timeline = build_motion_demo_timeline(
+    demo_timeline = build_coherence_timeline(
         demo_levels,
         display_params=_stimulus_params,
         presentation_duration_ms=None,
@@ -315,7 +317,7 @@ def _(
     )
     demo_html = build_jspsych_runner_html(
         demo_timeline,
-        config=motion_demo_runner_config(),
+        config=coherence_runner_config(),
     )
     demo_iframe = mo.Html(
         render_srcdoc_iframe(demo_html, title="jsPsych Demo", height=520)

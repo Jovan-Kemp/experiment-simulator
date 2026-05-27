@@ -116,13 +116,13 @@ Current structure:
 - `experiments/`
   - `coherence_demo/` - marimo coherence → HSSM demonstration
     - `coherence_demo.py` - orchestration (demo runner, controls, simulation, plotting, model calls)
+    - `coherence_timeline.py` - jsPsych demo timeline (intro, countdown, motion + feedback) and runner config
     - `coherence_demo.css` - marimo UI styles for the demonstration
 - `schemas/`
   - `contracts.py` - shared typed contracts (`ExperimentParams`, `Trial`, result message types)
   - `trial_generator.py` - abstract `TrialGenerator` and `FactorTrialGenerator`
   - `experimentGenerator.py` - `ExperimentGenerator`: experiment params + multiple `TrialGenerator` blocks
   - `jspsych_timeline.py` - generic jsPsych timeline adapters and motion trial builder
-  - `timelines/motion_demo.py` - precomposed demo timeline + demo `RunnerConfig`
 - `renderers/`
   - `jspsych_preview.py` - browser Canvas/iframe stimulus previews
 - `observers/`
@@ -179,7 +179,7 @@ Key integration boundaries:
 
 Key helper structure:
 
-- builds demo timeline via `schemas/timelines/motion_demo.py`
+- builds demo timeline via `experiments/coherence_demo/coherence_timeline.py`
 - uses `runtime/embed.py` for iframe embedding and `RunnerConfig` for demo runner options
 
 ### `schemas/contracts.py`
@@ -218,14 +218,14 @@ Role:
 - uses per-trial `presentation_duration_ms` when set
 - motion trial `on_finish` scoring and `on_load` canvas hooks (strings revived in browser)
 
-### `schemas/timelines/motion_demo.py`
+### `experiments/coherence_demo/coherence_timeline.py`
 
 Role:
 
-- demo-only timeline composition: intro → 3–2–1 countdown → motion trials (+ per-trial feedback)
-- exports `motion_demo_runner_config()` and `build_motion_demo_timeline()`
-- demo coherence levels come from marimo sliders (A/B/C), not hardcoded constants
-- `motion_demo_runner_config()` enables in-iframe result charts and loads `motion_rdk.js`
+- coherence-demo-only jsPsych timeline: intro → 3–2–1 countdown → motion trials (+ per-trial feedback)
+- exports `coherence_runner_config()`, `build_coherence_demo_levels()`, `build_coherence_timeline()`
+- demo coherence levels come from marimo sliders (A/B/C)
+- `coherence_runner_config()` enables in-iframe result charts and loads `motion_rdk.js`
 
 ### `observers/evidence_observer.py`
 
@@ -325,8 +325,8 @@ Role:
 
 ### Browser demo (participant-like)
 
-1. marimo builds a timeline via `build_motion_demo_timeline()` (`ExperimentGenerator` + per-level `FactorTrialGenerator` blocks) using slider levels A/B/C and user dot lifetime.
-2. `build_jspsych_runner_html(timeline, config=motion_demo_runner_config())` inlines HTML/CSS/JS assets.
+1. marimo builds a timeline via `build_coherence_timeline()` (`ExperimentGenerator` + per-level `FactorTrialGenerator` blocks) using slider levels A/B/C and user dot lifetime.
+2. `build_jspsych_runner_html(timeline, config=coherence_runner_config())` inlines HTML/CSS/JS assets.
 3. `render_srcdoc_iframe()` embeds the runner; user clicks **Restart demo** to rebuild with fresh random directions.
 4. Boot script decodes timeline + config; `JsPsychRunnerCore` binds plugins and runs jsPsych.
 5. After intro, a 3-second countdown runs; then motion trials call `__startAllMotionCanvases` on `on_load`.
