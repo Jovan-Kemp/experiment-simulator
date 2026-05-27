@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from runtime.jspsych_runner import RunnerConfig
 from tasks.jspsych_timeline import motion_to_jspsych_timeline
+from tasks.trial_generator import FactorTrialGenerator
 
 if TYPE_CHECKING:
-    from tasks.jspsych_motion import JsPsychTrialEngine
+    from tasks.trial_generator import FactorTrialGenerator as _FactorTrialGenerator
 
 INTRO_TRIAL: dict[str, object] = {
     "type": "html-button-response",
@@ -52,6 +54,7 @@ FEEDBACK_TRIAL: dict[str, object] = {
     "trial_duration": 1000,
 }
 
+
 def motion_demo_runner_config(*, title: str = "jsPsych Demo") -> RunnerConfig:
     """Runner settings for the motion coherence iframe demo."""
     return RunnerConfig(
@@ -81,34 +84,27 @@ def build_motion_demo_levels(
 
 
 def build_motion_demo_timeline(
-    engine: "JsPsychTrialEngine",
     demo_levels: list[tuple[str, float]],
     *,
-    canvas_width: int = 500,
-    canvas_height: int = 260,
-    n_dots: int = 80,
-    speed_px_s: float = 120.0,
-    seed: int = 42,
-    dot_lifetime_s: float = 0.1,
+    stimulus_params: dict[str, object],
+    make_motion_coherence_trials: Callable[..., _FactorTrialGenerator],
+    presentation_duration_ms: int | None = None,
 ) -> list[dict[str, object]]:
     """Build intro -> countdown -> motion trials (+ feedback) for the marimo demo."""
-    demo_trials = []
+    demo_generator = FactorTrialGenerator()
     for idx, (label, level) in enumerate(demo_levels, start=1):
-        trial = engine.make_trials(stim_level=level, n_trials=1)[0]
+        block = make_motion_coherence_trials(
+            n_trials=1,
+            coherence=level,
+            stimulus_params=stimulus_params,
+            presentation_duration_ms=presentation_duration_ms,
+        )
+        trial = block.all_trials()[0]
         trial["data"]["label"] = label
         trial["data"]["trial_num"] = idx
-        demo_trials.append(trial)
+        demo_generator.add_trial(trial)
 
-    motion_trials = motion_to_jspsych_timeline(
-        demo_trials,
-        trial_duration_ms=None,
-        canvas_width=canvas_width,
-        canvas_height=canvas_height,
-        n_dots=n_dots,
-        speed_px_s=speed_px_s,
-        seed=seed,
-        dot_lifetime_s=dot_lifetime_s,
-    )
+    motion_trials = motion_to_jspsych_timeline(demo_generator.all_trials())  # type: ignore[arg-type]
     timeline: list[dict[str, object]] = [INTRO_TRIAL, *COUNTDOWN_TRIALS]
     for trial in motion_trials:
         timeline.extend([trial, FEEDBACK_TRIAL])

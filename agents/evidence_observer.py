@@ -1,25 +1,29 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections.abc import Callable
 
 import numpy as np
 
 
 EvidenceModelFn = Callable[["NAfcObserver", np.ndarray, np.ndarray], np.ndarray]
+StimulusToStrengthsFn = Callable[[dict[str, object]], list[float]]
 
 
 @dataclass(frozen=True)
 class NAfcObserver:
-    """Virtual n-AFC observer operating on arrays of inputs.
+    """Virtual n-AFC observer operating on experiment ``stimulus_params``.
 
-    This observer takes per-alternative ``evidence_weight`` and ``stim_strengths``
-    on each trial and produces a choice index and a response time.
+    Derives latent ``stim_strengths`` from ``stimulus_params`` via
+    ``stimulus_to_strengths``. ``evidence_weight`` is an observer-side
+    per-alternative multiplier (all ones = no directional bias).
 
     Args:
         sigma0: Sensory noise intercept parameter.
         sigma_scale: Sensory noise slope applied to stimulus level.
         lapse_rate: Probability of lapsing to a random choice.
+        evidence_weight: Per-alternative multipliers applied to latent strengths.
+        stimulus_to_strengths: Maps experiment params to latent strength vector.
         evidence_model: Optional custom latent evidence generator.
         rng: Random number generator.
     """
@@ -29,14 +33,33 @@ class NAfcObserver:
     lapse_rate: float = 0.02
     rt_scale: float = 0.35
     rt_noise: float = 0.03
+    evidence_weight: tuple[float, ...] | None = None
+    stimulus_to_strengths: StimulusToStrengthsFn | None = None
     evidence_model: EvidenceModelFn | None = None
-    rng: np.random.Generator | None = None
+    rng: np.random.Generator | None = field(default=None, compare=False)
 
     def _rng(self) -> np.random.Generator:
         return self.rng if self.rng is not None else np.random.default_rng()
 
+    def latent_strengths(self, stimulus_params: dict[str, object]) -> list[float]:
+        """Derive per-alternative latent strengths from experiment parameters."""
+        if self.stimulus_to_strengths is None:
+            raise ValueError(
+                "stimulus_to_strengths must be set to derive latent strengths"
+            )
+        return list(self.stimulus_to_strengths(stimulus_params))
+
+    def _resolve_evidence_weight(self, n_alternatives: int) -> np.ndarray:
+        if self.evidence_weight is None:
+            return np.ones(n_alternatives, dtype=float)
+        weight = np.asarray(self.evidence_weight, dtype=float)
+        if weight.shape != (n_alternatives,):
+            raise ValueError(
+                "evidence_weight length must match number of alternatives"
+            )
+        return weight
+
     def sensory_sigma(self, stim_level: float) -> float:
-        # Enforce non-negativity only; allow values > 1.
         c = max(0.0, float(stim_level))
         return float(self.sigma0 + self.sigma_scale * c)
 
@@ -45,8 +68,6 @@ class NAfcObserver:
     ) -> np.ndarray:
         """Default latent evidence vector: evidence_weight * strength + Gaussian noise."""
         rng = self._rng()
-        # Base evidence grows with weight*strength; noise scales with difficulty
-        # (lower coherence -> higher noise).
         coherence = float(np.max(strength_arr))
         sigma = self.sensory_sigma(1.0 - coherence)
         return weight_arr * strength_arr + rng.normal(0.0, sigma, size=len(weight_arr))
@@ -73,12 +94,7 @@ class NAfcObserver:
         evidence_weight: list[float] | np.ndarray,
         stim_strengths: list[float] | np.ndarray,
     ) -> tuple[int, np.ndarray, bool]:
-        """Return choice, latent evidence, and lapse flag.
-
-        Pure lapse behavior:
-        - choice is random
-        - RT is not derived from evidence (handled downstream)
-        """
+        """Return choice, latent evidence, and lapse flag."""
         rng = self._rng()
         evidence = self._evidence_model(
             evidence_weight=evidence_weight, stim_strengths=stim_strengths
@@ -87,7 +103,6 @@ class NAfcObserver:
         if rng.random() < self.lapse_rate:
             return int(rng.integers(0, len(evidence))), evidence, True
 
-        # 1-stimulus detection special-case: return 0=absent, 1=present.
         if len(evidence) == 1:
             return int(evidence[0] > 0.0), evidence, False
         return int(np.argmax(evidence)), evidence, False
@@ -108,29 +123,33 @@ class NAfcObserver:
     def _lapse_reaction_time(self, ndt: float) -> float:
         """Pure-lapse RT: independent from evidence."""
         rng = self._rng()
-        # Lapse RT centers around ndt + rt_scale with additive jitter.
         base = float(ndt) + float(self.rt_scale)
         return max(0.05, base + rng.normal(0.0, float(self.rt_noise)))
 
     def choose(
         self,
+        stimulus_params: dict[str, object],
+        ndt: float,
+    ) -> tuple[int, float]:
+        """Choose alternative index and return response time from experiment params."""
+        stim_strengths = self.latent_strengths(stimulus_params)
+        evidence_weight = self._resolve_evidence_weight(len(stim_strengths))
+        choice_index, evidence, is_lapse = self._decision_process(
+            evidence_weight=evidence_weight, stim_strengths=stim_strengths
+        )
+        if is_lapse:
+            rt = self._lapse_reaction_time(ndt=ndt)
+        else:
+            rt = self._reaction_time(evidence=evidence, choice_index=choice_index, ndt=ndt)
+        return choice_index, rt
+
+    def choose_from_latent(
+        self,
         evidence_weight: list[float] | np.ndarray,
         stim_strengths: list[float] | np.ndarray,
         ndt: float,
     ) -> tuple[int, float]:
-        """Choose alternative index and return response time.
-
-        Args:
-            evidence_weight: Per-alternative multiplier before noise; all ones
-                means no bias toward either direction.
-            stim_strengths: Per-alternative strength array, aligned with
-                ``evidence_weight``.
-            ndt: Non-decision time for RT construction.
-
-        Returns:
-            Tuple of ``(choice_index, rt)``.
-        """
-        # Decision and RT share the same evidence model unless trial lapses.
+        """Choose directly from precomputed latent arrays (advanced / testing)."""
         choice_index, evidence, is_lapse = self._decision_process(
             evidence_weight=evidence_weight, stim_strengths=stim_strengths
         )

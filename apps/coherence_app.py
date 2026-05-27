@@ -42,7 +42,7 @@ def _():
     from renderers.jspsych_preview import motion_coherence_preview_iframe_html
     from runtime.embed import render_srcdoc_iframe
     from runtime.jspsych_runner import build_jspsych_runner_html
-    from tasks.jspsych_motion import JsPsychTrialEngine
+    from tasks.trial_generator import FactorTrialGenerator
     from tasks.timelines.motion_demo import (
         build_motion_demo_levels,
         build_motion_demo_timeline,
@@ -50,7 +50,7 @@ def _():
     )
 
     return (
-        JsPsychTrialEngine,
+        FactorTrialGenerator,
         NAfcObserver,
         Path,
         build_jspsych_runner_html,
@@ -114,6 +114,64 @@ def _():
 
 
 @app.cell
+def _(FactorTrialGenerator, np):
+    def motion_stimulus_to_strengths(stimulus_params: dict[str, object]) -> list[float]:
+        coherence = float(
+            stimulus_params.get("coherence", stimulus_params.get("stim_level", 0.0))
+        )
+        direction = str(stimulus_params.get("motion_direction", "right"))
+        if direction == "left":
+            return [coherence, 0.0]
+        return [0.0, coherence]
+
+    def make_motion_coherence_trials(
+        *,
+        n_trials: int,
+        coherence: float,
+        stimulus_params: dict[str, object] | None = None,
+        presentation_duration_ms: int | None = None,
+        rng: np.random.Generator | None = None,
+    ) -> FactorTrialGenerator:
+        random = rng if rng is not None else np.random.default_rng()
+        n = int(n_trials)
+        dirs = random.choice([-1, 1], size=n)
+        level = float(coherence)
+        base_params: dict[str, object] = dict(stimulus_params or {})
+        base_params.setdefault("coherence", level)
+
+        generator = FactorTrialGenerator()
+        for d in dirs:
+            stim_dir = int(d)
+            motion = "left" if stim_dir < 0 else "right"
+            correct_index = 0 if motion == "left" else 1
+            correct_key = "ArrowLeft" if correct_index == 0 else "ArrowRight"
+            params = {
+                **base_params,
+                "coherence": level,
+                "motion_direction": motion,
+            }
+            generator.add_trial(
+                FactorTrialGenerator.generate_trials(
+                    task="motion_coherence",
+                    stimulus_params=params,
+                    presentation_duration_ms=presentation_duration_ms,
+                    correct_index=correct_index,
+                    choices=["ArrowLeft", "ArrowRight"],
+                    correct_key=correct_key,
+                    data={
+                        "stim_level": level,
+                        "motion_direction": motion,
+                        "correct_response": correct_key,
+                        "task": "motion_coherence",
+                    },
+                )
+            )
+        return generator
+
+    return make_motion_coherence_trials, motion_stimulus_to_strengths
+
+
+@app.cell
 def _(mo):
     lvl1 = mo.ui.slider(0.0, 1.0, value=0.2, step=0.05, label="Coherence A (proportion)")
     lvl2 = mo.ui.slider(0.0, 1.0, value=0.5, step=0.05, label="Coherence B (proportion)")
@@ -156,7 +214,6 @@ def _(
             n_dots=MOTION_N_DOTS,
             width=MOTION_PREVIEW_WIDTH,
             height=MOTION_PREVIEW_HEIGHT,
-            duration_s=5.0,
             seed=MOTION_SEED,
             speed_px_s=MOTION_SPEED_PX_S,
             dot_lifetime_s=_lifetime,
@@ -181,6 +238,8 @@ def _(
     )
     panel
     return
+
+
 @app.cell
 def _(mo):
     demo_trials_per_level = mo.ui.number(
@@ -195,7 +254,6 @@ def _(mo):
 
 @app.cell
 def _(
-    JsPsychTrialEngine,
     MOTION_CANVAS_HEIGHT,
     MOTION_CANVAS_WIDTH,
     MOTION_N_DOTS,
@@ -210,6 +268,7 @@ def _(
     lvl1,
     lvl2,
     lvl3,
+    make_motion_coherence_trials,
     mo,
     motion_demo_runner_config,
     render_srcdoc_iframe,
@@ -222,16 +281,19 @@ def _(
     reps = max(1, min(20, int(demo_trials_per_level.value or 5)))
     demo_levels = build_motion_demo_levels(a, b, c, reps_per_level=reps)
     n_motion = len(demo_levels)
-    demo_engine = JsPsychTrialEngine()
+    _stimulus_params = {
+        "n_dots": MOTION_N_DOTS,
+        "speed_px_s": MOTION_SPEED_PX_S,
+        "dot_lifetime_s": _lifetime,
+        "canvas_width": MOTION_CANVAS_WIDTH,
+        "canvas_height": MOTION_CANVAS_HEIGHT,
+        "seed": MOTION_SEED,
+    }
     demo_timeline = build_motion_demo_timeline(
-        demo_engine,
         demo_levels,
-        canvas_width=MOTION_CANVAS_WIDTH,
-        canvas_height=MOTION_CANVAS_HEIGHT,
-        n_dots=MOTION_N_DOTS,
-        speed_px_s=MOTION_SPEED_PX_S,
-        seed=MOTION_SEED,
-        dot_lifetime_s=_lifetime,
+        stimulus_params=_stimulus_params,
+        presentation_duration_ms=None,
+        make_motion_coherence_trials=make_motion_coherence_trials,
     )
     demo_html = build_jspsych_runner_html(
         demo_timeline,
@@ -313,9 +375,6 @@ def _(mo):
 
 @app.cell
 def _(
-    fit_chains,
-    fit_draws,
-    fit_tune,
     lapse,
     mo,
     n_observers,
@@ -327,8 +386,6 @@ def _(
     sigma0,
     sigma_scale,
 ):
-    run_fit = mo.ui.run_button(label="Run hssm fit", disabled=not bool(run_sim.value))
-
     simulator_info_row = mo.Html(
         """
 <div style="display:inline-flex;align-items:flex-start;gap:0.4rem;max-width:100%;">
@@ -368,9 +425,9 @@ def _(
 """
     )
 
-    mo.md("### Simulation")
     mo.vstack(
         [
+            mo.md("### Simulation"),
             mo.accordion(
                 {
                     "Simulator settings": mo.vstack(
@@ -385,25 +442,17 @@ def _(
             ),
             run_sim,
             simulator_info_row,
-            mo.accordion(
-                {
-                    "Fitting settings": mo.vstack(
-                        [mo.hstack([fit_draws, fit_tune, fit_chains], gap=1)],
-                        gap=0.6,
-                    ),
-                }
-            ),
-            run_fit,
         ],
         gap=0.5,
     )
-    return run_fit
+    return
 
 
 @app.cell
 def _(
-    JsPsychTrialEngine,
     NAfcObserver,
+    make_motion_coherence_trials,
+    motion_stimulus_to_strengths,
     lvl1,
     lvl2,
     lvl3,
@@ -429,7 +478,6 @@ def _(
     nS = max(1, min(30, int(n_observers.value or 3)))
 
     rng = np.random.default_rng(12345)
-    sim = JsPsychTrialEngine(rng=rng)
 
     rows: list[dict] = []
     for subj in range(nS):
@@ -440,14 +488,20 @@ def _(
             lapse_rate=float(lapse.value),
             rt_scale=float(rt_scale.value),
             rt_noise=float(rt_noise.value),
+            evidence_weight=(1.0, 1.0),
+            stimulus_to_strengths=motion_stimulus_to_strengths,
             rng=obs_rng,
         )
         for level in condition_levels:
-            trials = sim.make_trials(stim_level=level, n_trials=nT)
-            for tr in sim.iter_trials(trials):
+            trial_gen = make_motion_coherence_trials(
+                n_trials=nT,
+                coherence=level,
+                rng=rng,
+            )
+            while trial_gen.has_next():
+                tr = trial_gen.next_trial()
                 choice_index, rt = obs.choose(
-                    evidence_weight=tr["evidence_weight"],
-                    stim_strengths=tr["stim_strengths"],
+                    tr["stimulus_params"],
                     ndt=float(ndt.value),
                 )
                 response = -1 if int(choice_index) == 0 else 1
@@ -525,6 +579,27 @@ def _(by, mo):
     chart = mo.ui.altair_chart(alt.hconcat(acc_chart, rt_chart))
     mo.vstack([mo.md("### Plots"), chart], gap=0.5)
     return
+
+
+@app.cell
+def _(fit_chains, fit_draws, fit_tune, mo, run_sim):
+    run_fit = mo.ui.run_button(label="Run hssm fit", disabled=not bool(run_sim.value))
+    mo.vstack(
+        [
+            mo.md("### HSSM fitting"),
+            mo.accordion(
+                {
+                    "Fitting settings": mo.vstack(
+                        [mo.hstack([fit_draws, fit_tune, fit_chains], gap=1)],
+                        gap=0.6,
+                    ),
+                }
+            ),
+            run_fit,
+        ],
+        gap=0.5,
+    )
+    return run_fit
 
 
 @app.cell

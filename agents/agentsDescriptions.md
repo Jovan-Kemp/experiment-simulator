@@ -10,8 +10,9 @@ Virtual n-AFC observer: one trial in, `(choice_index, rt)` out. Decision and non
 
 ### Overview
 
-- **Inputs per trial:** `evidence_weight`, `stim_strengths`, `ndt`
-- **`evidence_weight` all ones** means no bias toward either direction
+- **Inputs per trial:** `stimulus_params`, `ndt`
+- **`stimulus_to_strengths`** maps experiment params to latent `stim_strengths` inside the observer
+- **`evidence_weight`** (observer parameter; all ones = no bias) multiplies latent strengths before noise
 - **Output:** `(choice_index, rt)`
 - Optional **`evidence_model`** hook replaces default latent evidence generation
 

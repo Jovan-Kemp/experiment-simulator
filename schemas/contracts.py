@@ -1,24 +1,28 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import TypedDict
 
 
-class JsPsychTrialData(TypedDict):
-    stim_level: float
-    motion_direction: Literal["left", "right"] | str
-    correct_response: str
+class Trial(TypedDict):
+    """Task-agnostic trial contract for human and simulated runs.
+
+    ``stimulus_params`` holds experiment / presentation parameters only.
+    Latent ``stim_strengths`` for the observer are derived inside the observer
+    from ``stimulus_params``, not stored on the trial.
+    ``presentation_duration_ms`` is ``None`` for unlimited (response-terminated).
+    """
+
     task: str
-
-
-class JsPsychTrial(TypedDict):
-    type: str
-    stim_level: float
-    evidence_weight: list[float]
-    stim_strengths: list[float]
+    stimulus_params: dict[str, object]
+    presentation_duration_ms: int | None
     correct_index: int
     choices: list[str]
     correct_key: str
-    data: JsPsychTrialData
+    data: dict[str, object]
+
+
+# Backward-compatible alias used by jsPsych adapters.
+JsPsychTrial = Trial
 
 
 class SimulatedObservation(TypedDict):
@@ -33,4 +37,3 @@ class SimulatedObservation(TypedDict):
 class JsPsychResultsMessage(TypedDict):
     type: str
     rows: list[dict[str, object]]
-

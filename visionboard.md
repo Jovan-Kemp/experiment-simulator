@@ -30,11 +30,12 @@ The key idea is **interchangeability**:
 
 ## Current Working Flow
 
-1. User explores a live jsPsych-style demo in the app (coherence levels follow Stim Level A/B/C sliders; **Restart demo** rebuilds the iframe).
-2. User configures stimulus and observer parameters.
-3. Simulation generates trial-level response/RT data via `NAfcObserver`.
-4. HSSM fitting is run from dedicated controls.
-5. Model summaries and model-cartoon visualization are shown in-app.
+1. User explores live motion previews (coherence A/B/C sliders, adjustable dot lifetime).
+2. User runs the jsPsych demo (intro → countdown → motion trials with feedback → in-iframe result charts); **Restart demo** rebuilds the iframe.
+3. User configures observer and sampling parameters.
+4. Simulation generates trial-level response/RT data via `NAfcObserver`.
+5. HSSM fitting is run from dedicated controls.
+6. Model summaries and model-cartoon visualization are shown in-app.
 
 ## Near-Term Priorities
 
@@ -56,18 +57,18 @@ Evolve from a single demo into a reusable experiment framework where task templa
 - Implement persistent run-state management in the app (simulation complete, fit complete, last dataset) so workflows are explicit and recoverable.
 - Ingest human jsPsych results (`postMessage` -> dataframe schema) parallel to the simulated observer path.
 - Expand `analysis/` with reusable report builders (summary tables + standard plots) independent of any single task.
-- Add validation tests for `agents/evidence_observer.py`, `tasks/jspsych_motion.py`, and `analysis/descriptive_stats.py` to lock in expected behavior.
+- Add validation tests for `agents/evidence_observer.py`, `tasks/trial_generator.py`, and `analysis/descriptive_stats.py` to lock in expected behavior.
 - Add a second task prototype (non-motion or multi-choice variant) to verify interchangeability claims in practice.
 - Provide environment profile docs/scripts for reproducible setup across Linux variants (system deps + Python/uv workflow).
 - Add lightweight CI checks (import/syntax/tests) so modular refactors stay safe as components grow.
 - Create a configurable app shell in `apps/` so multiple demos/tasks can share common controls, run buttons, and plotting layout.
 
-
 ## Current Observer Notes
 
 The evidence observer path is anchored on an evidence-based decision rule with explicit separations between latent evidence generation, lapse behavior, and RT construction.
 
-- Trial encoding for binary motion now uses side-strength coding (`evidence_weight=[1,1]`, side-specific `stim_strengths`) so `argmax(evidence)` aligns with the correct side.
+- Trial encoding for binary motion: `motion_stimulus_to_strengths` in `coherence_app.py` maps experiment params to observer latent strengths.
+- `evidence_weight=(1,1)` on the observer means no directional bias.
 - Sensory noise is difficulty-scaled in the default evidence model (`coherence = max(stim_strengths)`, noise uses `1 - coherence`).
 - Observer noise is parameterized by `sigma0` (noise floor) and `sigma_scale` (difficulty slope).
 - The observer supports an optional custom signal-model hook so both decisions and non-lapse RTs can share a custom latent signal.
@@ -81,13 +82,28 @@ The browser runner is split into composable assets under `runtime/`:
 
 - **Core** (`jspsych_runner_core.js`): timeline decode, plugin binding, jsPsych lifecycle, optional arrow-key scroll guard.
 - **Boot** (`jspsych_runner_boot.js`): reads base64-injected config + timeline.
-- **Stimulus display** (`runtime/stimulus_display/`, e.g. `motion_rdk.js`): optional browser animation; motion is started from trial `on_load`, not globally at boot.
+- **Stimulus display** (`runtime/stimulus_display/motion_rdk.js`): time-based motion (px/s), dot lifetime with edge/out-of-bounds respawn; started from trial `on_load`.
+- **Demo charts** (`demo_results_charts.js`): Vega-Lite accuracy and mean RT bars in the iframe when `RunnerConfig.show_results_charts` is enabled.
 - **Assembly** (`jspsych_runner.py` + `.html` + `.css`): inlined into marimo `srcdoc` iframes.
 
 jsPsych **v7** requires the instance from `initJsPsych()` — exposed as `window.__jsPsychInstance` for Python-authored string callbacks (`on_finish`, dynamic `stimulus` functions). Global `jsPsych` must not be used in timeline strings.
 
-Recent fixes aligned with this model:
+Motion display parameters:
+
+- **Speed**: pixels per second via `data-speed-px-s` (not per-frame), for cross-browser consistency.
+- **Canvas**: fixed pixel dimensions in HTML/CSS (no responsive resize).
+- **Dot lifetime**: user-adjustable in `coherence_app.py`; dots respawn after lifetime expiry or leaving the aperture.
+- **App-specific defaults** (canvas size, dot count, speed, seed) live in `coherence_app.py`; passed via each trial's `stimulus_params`.
+
+Trial generation architecture:
+
+- Generic `Trial` contract: `stimulus_params` and presentation timing only (no latent evidence on trial).
+- Abstract `TrialGenerator` stores trial parameter dicts with `next_trial()` / `reset()`; `FactorTrialGenerator` is the concrete factorial/list implementation.
+- Observer hyperparameters (`sigma0`, lapse, RT scale, …) remain on `NAfcObserver` only.
+
+Recent alignment with this model:
 
 - Motion trial encoding uses side-strength coding so `argmax(evidence)` matches correct side.
-- Demo timeline uses slider-defined coherence levels and supports iframe restart.
-- `MigrationError` from global `jsPsych` usage resolved in motion scoring and demo summary trials.
+- Demo timeline uses slider-defined coherence levels, countdown, per-trial feedback, and iframe restart.
+- End-of-demo charts render inside the jsPsych iframe (filtered to `motion_coherence` trials).
+- `MigrationError` from global `jsPsych` usage resolved in motion scoring and demo feedback trials.

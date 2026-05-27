@@ -3,9 +3,17 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from renderers.jspsych_preview import motion_trial_stimulus_html
-from schemas.contracts import JsPsychTrial
+from schemas.contracts import Trial
 
-REVIVE_KEYS = ("on_finish", "on_start", "on_load", "stimulus")
+
+def _motion_coherence(tr: Trial) -> float:
+    params = tr["stimulus_params"]
+    return float(params.get("coherence", params.get("stim_level", 0.0)))
+
+
+def _motion_param(tr: Trial, key: str, default: object) -> object:
+    return tr["stimulus_params"].get(key, default)
+
 
 MOTION_SCORING_ON_FINISH = (
     "function(data){"
@@ -26,30 +34,28 @@ MOTION_CANVAS_ON_LOAD = (
 
 
 def build_motion_keyboard_trial(
-    tr: JsPsychTrial,
+    tr: Trial,
     trial_index: int,
     *,
     trial_duration_ms: int | None = None,
-    canvas_width: int = 500,
-    canvas_height: int = 260,
-    n_dots: int = 80,
-    speed_px_s: float = 120.0,
-    seed: int = 42,
-    dot_lifetime_s: float = 0.1,
 ) -> dict[str, object]:
     """Convert one motion trial contract into a jsPsych html-keyboard-response trial."""
     correct_index = int(tr["correct_index"])
-    direction = "left" if correct_index == 0 else "right"
+    direction = str(_motion_param(tr, "motion_direction", "right"))
+    duration_ms = tr["presentation_duration_ms"]
+    if duration_ms is None:
+        duration_ms = trial_duration_ms
+
     stim_html = motion_trial_stimulus_html(
-        stim_level=float(tr["stim_level"]),
+        stim_level=_motion_coherence(tr),
         motion_direction=direction,
         trial_id=f"trial-{trial_index}",
-        width=canvas_width,
-        height=canvas_height,
-        n_dots=n_dots,
-        speed_px_s=speed_px_s,
-        seed=seed,
-        dot_lifetime_s=dot_lifetime_s,
+        width=int(_motion_param(tr, "canvas_width", 500)),
+        height=int(_motion_param(tr, "canvas_height", 260)),
+        n_dots=int(_motion_param(tr, "n_dots", 80)),
+        speed_px_s=float(_motion_param(tr, "speed_px_s", 120.0)),
+        seed=int(_motion_param(tr, "seed", 42)),
+        dot_lifetime_s=float(_motion_param(tr, "dot_lifetime_s", 0.1)),
     )
     timeline_trial: dict[str, object] = {
         "type": "html-keyboard-response",
@@ -65,13 +71,13 @@ def build_motion_keyboard_trial(
         "on_finish": MOTION_SCORING_ON_FINISH,
         "on_load": MOTION_CANVAS_ON_LOAD,
     }
-    if trial_duration_ms is not None:
-        timeline_trial["trial_duration"] = int(trial_duration_ms)
+    if duration_ms is not None:
+        timeline_trial["trial_duration"] = int(duration_ms)
     return timeline_trial
 
 
 def to_jspsych_timeline(
-    trials: list[JsPsychTrial],
+    trials: list[Trial],
     trial_builder: Callable[..., dict[str, object]],
     *,
     trial_duration_ms: int | None = None,
@@ -86,20 +92,14 @@ def to_jspsych_timeline(
 
 
 def motion_to_jspsych_timeline(
-    trials: list[JsPsychTrial],
+    trials: list[Trial],
     *,
     trial_duration_ms: int | None = None,
-    canvas_width: int = 500,
-    canvas_height: int = 260,
-    n_dots: int = 80,
-    speed_px_s: float = 120.0,
-    seed: int = 42,
-    dot_lifetime_s: float = 0.1,
 ) -> list[dict[str, object]]:
     """Motion-coherence adapter for jsPsych timeline export."""
 
     def _builder(
-        tr: JsPsychTrial,
+        tr: Trial,
         trial_index: int,
         *,
         trial_duration_ms: int | None = None,
@@ -108,12 +108,6 @@ def motion_to_jspsych_timeline(
             tr,
             trial_index,
             trial_duration_ms=trial_duration_ms,
-            canvas_width=canvas_width,
-            canvas_height=canvas_height,
-            n_dots=n_dots,
-            speed_px_s=speed_px_s,
-            seed=seed,
-            dot_lifetime_s=dot_lifetime_s,
         )
 
     return to_jspsych_timeline(

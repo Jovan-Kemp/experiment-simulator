@@ -19,7 +19,7 @@ Current structure:
 - `apps/`
   - `coherence_app.py` - marimo orchestration app (demo runner, controls, simulation wiring, plotting, model calls)
 - `tasks/`
-  - `jspsych_motion.py` - motion trial generation (internal trial contracts)
+  - `trial_generator.py` - abstract `TrialGenerator` and `FactorTrialGenerator`
   - `jspsych_timeline.py` - generic jsPsych timeline adapters and motion trial builder
   - `timelines/motion_demo.py` - precomposed demo timeline + demo `RunnerConfig`
 - `renderers/`
@@ -35,12 +35,13 @@ Current structure:
   - `jspsych_runner.css` - runner layout overrides (inlined)
   - `jspsych_runner_core.js` - generic timeline decode, plugin bind, jsPsych lifecycle
   - `jspsych_runner_boot.js` - reads injected config/timeline and starts core
+  - `demo_results_charts.js` - in-iframe Vega-Lite accuracy/RT charts after demo completion
   - `stimulus_display/motion_rdk.js` - motion RDK canvas animation (optional per `RunnerConfig`)
 - `analysis/`
   - `hssm_pipeline.py` - fit/summarize helpers for HSSM analyses
   - `descriptive_stats.py` - d-prime and standard error descriptive statistics helpers
 - `schemas/`
-  - `contracts.py` - shared typed data contracts
+  - `contracts.py` - shared typed data contracts (`Trial`, `JsPsychTrial` alias)
 - `README.md` - quickstart and run instructions
 - `DOCUMENTATION.md` - this architecture guide
 - `pyproject.toml` - project metadata and dependencies
@@ -54,12 +55,20 @@ Current structure:
 Role:
 
 - assembles the end-to-end interactive workflow in marimo
-- includes an interactive participant-like demo block above controls
-- exposes UI controls for coherence/task/sampling settings
+- includes an interactive participant-like demo block above simulation controls
+- exposes UI controls for coherence levels, dot lifetime, trials/participants, and observer parameters
 - uses separate run controls for simulation and HSSM fit
 - renders task previews in the notebook UI
 - runs data simulation loops using trial and observer modules
 - executes HSSM model fitting and displays summaries/charts including an HSSM model cartoon plot
+
+Motion display settings for this app only (not shared defaults elsewhere):
+
+- fixed canvas sizes for previews and demo trials (`MOTION_CANVAS_*`, `MOTION_PREVIEW_*`)
+- dot count, speed (px/s), and seed (`MOTION_N_DOTS`, `MOTION_SPEED_PX_S`, `MOTION_SEED`)
+- dot lifetime from the **Dot lifetime (s)** number input (passed to previews and demo timeline)
+
+Motion display settings and motion-specific trial sampling (`make_motion_coherence_trials`, `motion_stimulus_to_strengths`) live in `coherence_app.py` only.
 
 Key integration boundaries:
 
@@ -74,17 +83,12 @@ Key helper structure:
 - builds demo timeline via `tasks/timelines/motion_demo.py`
 - uses `runtime/embed.py` for iframe embedding and `RunnerConfig` for demo runner options
 
-### `tasks/jspsych_motion.py`
+### `tasks/trial_generator.py`
 
 Role:
 
-- defines motion-coherence trial generation (`make_trials`, internal `JsPsychTrial` contracts)
-- delegates jsPsych export to `tasks/jspsych_timeline.py`
-
-Current behavior:
-
-- random left/right direction per trial
-- simulation uses trial contracts directly; browser demo uses timeline adapters
+- abstract ``TrialGenerator``: stores an ordered list of trial parameter dicts, tracks an internal index, exposes ``next_trial()``, ``reset()``, and ``has_next()``
+- ``FactorTrialGenerator``: concrete implementation for explicit / factorial trial lists; ``generate_trials()`` builds one trial dict
 
 ### `tasks/jspsych_timeline.py`
 
@@ -92,15 +96,18 @@ Role:
 
 - generic `to_jspsych_timeline(trials, trial_builder, ...)`
 - motion-specific `build_motion_keyboard_trial` + `motion_to_jspsych_timeline`
+- reads display parameters from each trial's `stimulus_params`
+- uses per-trial `presentation_duration_ms` when set
 - motion trial `on_finish` scoring and `on_load` canvas hooks (strings revived in browser)
 
 ### `tasks/timelines/motion_demo.py`
 
 Role:
 
-- demo-only timeline composition (intro, motion blocks, feedback, summary)
+- demo-only timeline composition: intro → 3–2–1 countdown → motion trials (+ per-trial feedback)
 - exports `motion_demo_runner_config()` and `build_motion_demo_timeline()`
-- demo coherence levels come from marimo sliders (Stim Level A/B/C), not hardcoded constants
+- demo coherence levels come from marimo sliders (A/B/C), not hardcoded constants
+- `motion_demo_runner_config()` enables in-iframe result charts and loads `motion_rdk.js`
 
 ### `agents/evidence_observer.py`
 
@@ -112,7 +119,9 @@ Role:
 
 Current `NAfcObserver` behavior:
 
-- Latent evidence defaults to `evidence_weight * stim_strengths + Gaussian noise` (`evidence_weight` all ones = no directional bias).
+- Accepts experiment ``stimulus_params``; derives latent ``stim_strengths`` via ``stimulus_to_strengths``.
+- ``evidence_weight`` is an observer parameter (default all ones = no directional bias).
+- Latent evidence defaults to `evidence_weight * stim_strengths + Gaussian noise`.
 - Sensory noise uses `sigma = sigma0 + sigma_scale * c` where `c` is driven by task difficulty (`1 - coherence`, `coherence = max(stim_strengths)`).
 - Lapse path is explicit: with probability `lapse_rate`, choice is random and RT is generated from lapse RT logic.
 - Non-lapse choice for n-AFC uses `argmax(evidence)`; 1-stimulus mode uses sign-threshold detection.
@@ -129,8 +138,16 @@ Why it exists:
 Role:
 
 - provides UI-facing stimulus preview rendering helpers
-- currently generates browser iframe/Canvas snippets for motion previews
+- generates browser iframe/Canvas snippets for marimo slider previews (inline animation script)
 - provides trial stimulus canvas markup (data-attribute based) for jsPsych keyboard trials
+
+Motion stimulus contract (canvas `data-*` attributes read by `motion_rdk.js`):
+
+- `data-stim-level`, `data-dir-sign`, `data-seed`, `data-n-dots`
+- `data-speed-px-s` — motion speed in pixels per second (time-based `requestAnimationFrame` updates)
+- `data-dot-lifetime-s` — dot survival time in seconds; expired or out-of-bounds dots respawn at a new random location
+
+Canvas elements use explicit pixel width/height (no responsive scaling) so speed is consistent across browsers.
 
 Why it exists:
 
@@ -142,7 +159,7 @@ Why it exists:
 Role:
 
 - creates a standalone jsPsych runtime HTML document for iframe `srcdoc`
-- `RunnerConfig` selects plugins, optional `extra_scripts`, and input policies
+- `RunnerConfig` selects plugins, optional `extra_scripts`, input policies, and optional end-of-run charts
 - injects timeline + config as base64 JSON for the boot script
 - loads CDN plugin scripts from `jspsych_plugins.py`
 
@@ -154,7 +171,7 @@ Role:
 
 ### jsPsych v7 runtime contract
 
-The runner targets **jsPsych 7** (CDN). There is **no global `jsPsych*`* object.
+The runner targets **jsPsych 7** (CDN). There is **no global `jsPsych`** object.
 
 - `jspsych_runner_core.js` calls `initJsPsych(...)` and assigns `window.__jsPsychInstance`.
 - Eval'd trial callbacks (Python string `on_finish` / `stimulus` functions) must use `window.__jsPsychInstance` for `data`, `pluginAPI`, etc.
@@ -184,23 +201,25 @@ Role:
 - provides descriptive statistics helpers independent of fitting pipeline
 - includes `dprime(...)` with mode-based inputs (`rates` or `counts`)
 - includes `standard_error(...)` with mode-based inputs (`values` or `percentages`)
-- keeps utility statistics separate from HSSM model-fitting code
+- keeps descriptive statistics separate from HSSM model-fitting code
 
 ## Runtime Flow
 
 ### Browser demo (participant-like)
 
-1. marimo builds a timeline via `build_motion_demo_timeline()` using slider levels A/B/C (two A→C blocks).
+1. marimo builds a timeline via `build_motion_demo_timeline()` using slider levels A/B/C and user dot lifetime.
 2. `build_jspsych_runner_html(timeline, config=motion_demo_runner_config())` inlines HTML/CSS/JS assets.
 3. `render_srcdoc_iframe()` embeds the runner; user clicks **Restart demo** to rebuild with fresh random directions.
-4. Boot script decodes timeline + config, `JsPsychRunnerCore` binds plugins and runs jsPsych.
-5. Motion trials call `__startAllMotionCanvases` on `on_load`; scoring uses `__jsPsychInstance` on `on_finish`.
-6. On experiment end, runner posts `{ type: "jspsych-results", rows }` to parent (ingest path not yet wired in app).
+4. Boot script decodes timeline + config; `JsPsychRunnerCore` binds plugins and runs jsPsych.
+5. After intro, a 3-second countdown runs; then motion trials call `__startAllMotionCanvases` on `on_load`.
+6. Scoring uses `__jsPsychInstance` on `on_finish`; feedback trials follow each motion trial.
+7. On experiment end, in-iframe Vega-Lite charts summarize accuracy and mean RT by coherence (`demo_results_charts.js`).
+8. Runner also posts `{ type: "jspsych-results", rows }` to parent (marimo ingest path not yet wired).
 
 ### Python simulation + HSSM
 
 1. marimo UI collects task and observer parameters.
-2. `JsPsychTrialEngine.make_trials()` creates trials with random left/right and side-strength coding (`evidence_weight=[1,1]`).
+2. `make_motion_coherence_trials()` (in `coherence_app.py`) creates trials with random left/right and `stimulus_params`.
 3. `NAfcObserver.choose()` builds latent evidence, choice, and RT (explicit lapse path).
 4. tabular data is assembled for modeling.
 5. user triggers HSSM fit with dedicated run control.
@@ -221,11 +240,11 @@ Prefer data contracts (plain dict/dataframe schemas) between modules over direct
 
 Trial-level fields currently used by the pipeline:
 
-- `stim_level`
-- `evidence_weight`
-- `stim_strengths`
+- `task`
+- `stimulus_params` (experiment / presentation parameters)
+- `presentation_duration_ms` (`None` = unlimited until response)
 - `correct_index`
-- jsPsych metadata fields (`type`, `choices`, `correct_key`, nested `data`, etc.)
+- jsPsych metadata fields (`choices`, `correct_key`, nested `data`, etc.)
 
 Modeled dataset fields:
 
