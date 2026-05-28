@@ -23,6 +23,7 @@ The architecture separates concerns so pieces can be swapped without rewriting t
 - `experiments/` orchestrates controls, execution flow, and visualization
 
 The key idea is **interchangeability**:
+
 - new tasks should plug into the same run/fit pipeline
 - new stimuli modalities should reuse orchestration patterns
 - human and virtual response sources should be exchangeable
@@ -46,6 +47,7 @@ See the mermaid pipeline flowchart in [DOCUMENTATION.md](DOCUMENTATION.md#pipeli
 - Keep run controls explicit and predictable (simulate first, fit second).
 - Improve robustness and interpretability of HSSM outputs under low-sample settings.
 - Expand reusable statistics utilities (`analysis/descriptive_stats.py`).
+- Strengthen boundaries between task-agnostic and task-specific code: motion-specific logic is still split across `schemas/jspsych_timeline.py` and `experiments/coherence_demo/coherence_demo.py`, which makes reuse and extension harder.
 - Preserve clean module boundaries as new task types are added.
 
 ## Long-Term Direction
@@ -109,3 +111,4 @@ Recent alignment with this model:
 - Demo timeline uses slider-defined coherence levels, countdown, per-trial feedback, and iframe restart.
 - End-of-demo charts render inside the jsPsych iframe (filtered to `motion_coherence` trials).
 - `MigrationError` from global `jsPsych` usage resolved in motion scoring and demo feedback trials.
+

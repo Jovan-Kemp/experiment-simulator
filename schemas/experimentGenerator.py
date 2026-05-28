@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Protocol
+
 from schemas.contracts import ExperimentParams, Trial
 from schemas.trial_generator import TrialGenerator
+
+
+class ObserverLike(Protocol):
+    def choose(self, stimulus_factors: dict[str, object], ndt: float) -> tuple[int, float]: ...
 
 
 class ExperimentGenerator:
@@ -66,6 +73,53 @@ class ExperimentGenerator:
             for generator in self._trial_generators
             for trial in generator.all_trials()
         ]
+
+    def simulate(
+        self,
+        *,
+        observer_factory: Callable[[int], ObserverLike],
+        n_subjects: int,
+        ndt: float,
+        response_mapper: Callable[[int], int] | None = None,
+    ) -> list[dict[str, object]]:
+        """Run the experiment with simulated observers and return row records.
+
+        Args:
+            observer_factory: Builds one observer per subject.
+            n_subjects: Number of simulated subjects.
+            ndt: Non-decision time passed into ``observer.choose``.
+            response_mapper: Optional mapping from ``choice_index`` to output response code.
+        """
+        subjects = max(0, int(n_subjects))
+        rows: list[dict[str, object]] = []
+        trials = self.all_trials()
+
+        for subj in range(subjects):
+            observer = observer_factory(subj)
+            for tr in trials:
+                trial_data = dict(tr.get("data") or {})
+                stim_factors = dict(tr.get("stimulus_factors") or {})
+                choice_index, rt = observer.choose(stim_factors, ndt=float(ndt))
+                choice_idx = int(choice_index)
+                correct_index = int(tr["correct_index"])
+                if response_mapper is None:
+                    response = -1 if choice_idx == 0 else 1
+                else:
+                    response = int(response_mapper(choice_idx))
+                stim_level = float(
+                    trial_data.get("stim_level", stim_factors.get("coherence", 0.0))
+                )
+                rows.append(
+                    {
+                        "subj": int(subj),
+                        "stim_level": stim_level,
+                        "choice_index": choice_idx,
+                        "response": response,
+                        "rt": float(rt),
+                        "correct": int(choice_idx == correct_index),
+                    }
+                )
+        return rows
 
     def _apply_experiment_params(self, trial: Trial | dict[str, object]) -> dict[str, object]:
         out = dict(trial)

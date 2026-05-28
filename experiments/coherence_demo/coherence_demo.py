@@ -486,10 +486,19 @@ def _(
 
     rng = np.random.default_rng(12345)
 
-    rows: list[dict] = []
-    for subj in range(nS):
+    experiment = ExperimentGenerator()
+    for level in condition_levels:
+        experiment.add_trial_generator(
+            make_motion_coherence_trials(
+                n_trials=nT,
+                coherence=level,
+                rng=rng,
+            )
+        )
+
+    def build_observer(_subj: int):
         obs_rng = np.random.default_rng(rng.integers(0, 2**32 - 1))
-        obs = NAfcObserver(
+        return NAfcObserver(
             sigma0=float(sigma0.value),
             sigma_scale=float(sigma_scale.value),
             lapse_rate=float(lapse.value),
@@ -499,33 +508,12 @@ def _(
             stimulus_to_strengths=motion_stimulus_to_strengths,
             rng=obs_rng,
         )
-        experiment = ExperimentGenerator()
-        for level in condition_levels:
-            experiment.add_trial_generator(
-                make_motion_coherence_trials(
-                    n_trials=nT,
-                    coherence=level,
-                    rng=rng,
-                )
-            )
-        while experiment.has_next_trial():
-            tr = experiment.next_trial()
-            stim_level = float(tr["data"].get("stim_level", 0.0))
-            choice_index, rt = obs.choose(
-                tr["stimulus_factors"],
-                ndt=float(ndt.value),
-            )
-            response = -1 if int(choice_index) == 0 else 1
-            rows.append(
-                dict(
-                    subj=subj,
-                    stim_level=stim_level,
-                    choice_index=int(choice_index),
-                    response=int(response),
-                    rt=float(rt),
-                    correct=int(int(choice_index) == int(tr["correct_index"])),
-                )
-            )
+
+    rows = experiment.simulate(
+        observer_factory=build_observer,
+        n_subjects=nS,
+        ndt=float(ndt.value),
+    )
 
     df = pd.DataFrame(rows)
     df
