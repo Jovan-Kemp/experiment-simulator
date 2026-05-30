@@ -55,6 +55,11 @@ window.JsPsychRunnerCore = (() => {
     }
   }
 
+  /** jsPsych's ``.json()`` export (do not use ``.values()`` + JSON.stringify). */
+  function collectResultsJson(jsPsych) {
+    return jsPsych.data.get().json();
+  }
+
   function renderResultsCharts(rows, config) {
     if (!config.show_results_charts || !window.JsPsychDemoCharts) return;
     const task = config.results_task_filter;
@@ -68,8 +73,9 @@ window.JsPsychRunnerCore = (() => {
     const jsPsych = initJsPsych({
       display_element: config.display_element || "jspsych-target",
       on_finish: () => {
-        const rows = jsPsych.data.get().values();
-        postResultsToParent(rows, config.results_message_type || "jspsych-results");
+        const rowsJson = collectResultsJson(jsPsych);
+        const rows = JSON.parse(rowsJson);
+        postResultsToParent(rowsJson, config.results_message_type || "jspsych-results");
         renderResultsCharts(rows, config);
       },
     });
@@ -78,12 +84,8 @@ window.JsPsychRunnerCore = (() => {
     return jsPsych;
   }
 
-  function postResultsToParent(rows, messageType) {
-    try {
-      window.parent.postMessage({ type: messageType, rows }, "*");
-    } catch (e) {
-      // Ignore postMessage failures in non-iframe contexts.
-    }
+  function postResultsToParent(rowsJson, messageType) {
+    window.parent.postMessage({ type: messageType, rows_json: rowsJson }, "*");
   }
 
   function armDisplayFocus(root) {
@@ -131,6 +133,7 @@ window.JsPsychRunnerCore = (() => {
     decodeB64Json,
     prepareTimeline,
     assertJsPsychLoaded,
+    collectResultsJson,
     createJsPsych,
     postResultsToParent,
     renderResultsCharts,

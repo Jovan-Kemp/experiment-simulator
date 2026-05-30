@@ -74,6 +74,8 @@ def _(mo, project_root):
         motion_coherence_preview_iframe_html,
     )
     from runtime.embed import render_srcdoc_iframe
+    from motion_coherence_export import FIT_DF_COLUMNS, motion_trials_dataframe
+    from runtime.jspsych_export import create_jspsych_marimo_bridge
     from runtime.jspsych_runner import build_jspsych_runner_html
     from schemas.experimentGenerator import ExperimentGenerator
     from schemas.trial_generator import FactorTrialGenerator
@@ -91,9 +93,12 @@ def _(mo, project_root):
         build_coherence_timeline,
         build_jspsych_runner_html,
         coherence_runner_config,
+        create_jspsych_marimo_bridge,
         fit_hssm_model,
         motion_coherence_preview_iframe_html,
         project_root,
+        FIT_DF_COLUMNS,
+        motion_trials_dataframe,
         render_srcdoc_iframe,
         summarize_behavior,
         summarize_posterior,
@@ -346,6 +351,19 @@ def _(
 
 
 @app.cell
+def _(create_jspsych_marimo_bridge):
+    demo_results = create_jspsych_marimo_bridge()
+    demo_results
+    return demo_results,
+
+
+@app.cell
+def _(demo_results, motion_trials_dataframe):
+    demo_df = motion_trials_dataframe(demo_results.value["rows_json"])
+    return demo_df,
+
+
+@app.cell
 def _(mo):
     n_trials = mo.ui.number(
         start=10,
@@ -508,6 +526,7 @@ def _(
 @app.cell
 def _(
     ExperimentGenerator,
+    FIT_DF_COLUMNS,
     NAfcObserver,
     make_motion_coherence_trials,
     motion_stimulus_to_strengths,
@@ -527,115 +546,147 @@ def _(
     sigma0,
     sigma_scale,
 ):
-    mo.stop(not run_sim.value)
+    if not run_sim.value:
+        df = pd.DataFrame(columns=FIT_DF_COLUMNS)
+        _sim_out = mo.md("_Click **Run simulation** to generate synthetic data._")
+    else:
+        condition_levels = [max(0.0, float(s.value)) for s in (lvl1, lvl2, lvl3)]
 
-    condition_levels = [max(0.0, float(s.value)) for s in (lvl1, lvl2, lvl3)]
+        nT = max(10, min(300, int(n_trials.value or 100)))
+        nS = max(1, min(30, int(n_observers.value or 3)))
 
-    nT = max(10, min(300, int(n_trials.value or 100)))
-    nS = max(1, min(30, int(n_observers.value or 3)))
+        rng = np.random.default_rng(12345)
 
-    rng = np.random.default_rng(12345)
-
-    experiment = ExperimentGenerator()
-    for level in condition_levels:
-        experiment.add_trial_generator(
-            make_motion_coherence_trials(
-                n_trials=nT,
-                coherence=level,
-                rng=rng,
+        experiment = ExperimentGenerator()
+        for level in condition_levels:
+            experiment.add_trial_generator(
+                make_motion_coherence_trials(
+                    n_trials=nT,
+                    coherence=level,
+                    rng=rng,
+                )
             )
+
+        def build_observer(_subj: int):
+            obs_rng = np.random.default_rng(rng.integers(0, 2**32 - 1))
+            return NAfcObserver(
+                sigma0=float(sigma0.value),
+                sigma_scale=float(sigma_scale.value),
+                lapse_rate=float(lapse.value),
+                rt_scale=float(rt_scale.value),
+                rt_noise=float(rt_noise.value),
+                evidence_weight=(1.0, 1.0),
+                stimulus_to_strengths=motion_stimulus_to_strengths,
+                rng=obs_rng,
+            )
+
+        rows = experiment.simulate(
+            observer_factory=build_observer,
+            n_subjects=nS,
+            ndt=float(ndt.value),
         )
 
-    def build_observer(_subj: int):
-        obs_rng = np.random.default_rng(rng.integers(0, 2**32 - 1))
-        return NAfcObserver(
-            sigma0=float(sigma0.value),
-            sigma_scale=float(sigma_scale.value),
-            lapse_rate=float(lapse.value),
-            rt_scale=float(rt_scale.value),
-            rt_noise=float(rt_noise.value),
-            evidence_weight=(1.0, 1.0),
-            stimulus_to_strengths=motion_stimulus_to_strengths,
-            rng=obs_rng,
-        )
-
-    rows = experiment.simulate(
-        observer_factory=build_observer,
-        n_subjects=nS,
-        ndt=float(ndt.value),
-    )
-
-    df = pd.DataFrame(rows)
-    df
+        df = pd.DataFrame(rows)
+        _sim_out = df
+    _sim_out
     return df
 
 
 @app.cell
 def _(df, mo, summarize_behavior):
     by = summarize_behavior(df)
-    by_labeled = by.rename(
-        columns={
-            "stim_level": "coherence (proportion)",
-            "acc": "accuracy (proportion)",
-            "rt_mean": "mean RT (s)",
-            "rt_med": "median RT (s)",
-            "n": "trials (count)",
-        }
-    )
-    mo.vstack(
-        [
-            mo.md("### Simulated behavior summary"),
-            mo.Html(by_labeled.to_html(index=False, classes="dataframe")),
-        ],
-        gap=0.5,
-    )
+    if df.empty:
+        _summary = mo.md("_No simulation data yet._")
+    else:
+        by_labeled = by.rename(
+            columns={
+                "stim_level": "coherence (proportion)",
+                "acc": "accuracy (proportion)",
+                "rt_mean": "mean RT (s)",
+                "rt_med": "median RT (s)",
+                "n": "trials (count)",
+            }
+        )
+        _summary = mo.vstack(
+            [
+                mo.md("### Simulated behavior summary"),
+                mo.Html(by_labeled.to_html(index=False, classes="dataframe")),
+            ],
+            gap=0.5,
+        )
+    _summary
     return by
 
 
 @app.cell
-def _(by, mo):
+def _(by, df, mo):
     import altair as alt
 
-    base = alt.Chart(by)
-    acc_chart = (
-        base.mark_bar()
-        .encode(
-            x=alt.X("stim_level:Q", title="Coherence (proportion)"),
-            y=alt.Y("acc:Q", title="Accuracy (proportion)", scale=alt.Scale(domain=[0, 1])),
-            tooltip=[
-                alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
-                alt.Tooltip("acc:Q", title="Accuracy (proportion)", format=".3f"),
-                alt.Tooltip("n:Q", title="Trials (count)"),
-                alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
-            ],
+    if df.empty:
+        _plots = mo.md("_No simulation plots yet._")
+    else:
+        base = alt.Chart(by)
+        acc_chart = (
+            base.mark_bar()
+            .encode(
+                x=alt.X("stim_level:Q", title="Coherence (proportion)"),
+                y=alt.Y("acc:Q", title="Accuracy (proportion)", scale=alt.Scale(domain=[0, 1])),
+                tooltip=[
+                    alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
+                    alt.Tooltip("acc:Q", title="Accuracy (proportion)", format=".3f"),
+                    alt.Tooltip("n:Q", title="Trials (count)"),
+                    alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
+                ],
+            )
+            .properties(width=260, height=220, title="Accuracy by coherence")
         )
-        .properties(width=260, height=220, title="Accuracy by coherence")
-    )
-    rt_chart = (
-        base.mark_bar()
-        .encode(
-            x=alt.X("stim_level:Q", title="Coherence (proportion)"),
-            y=alt.Y("rt_mean:Q", title="Mean RT (s)"),
-            tooltip=[
-                alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
-                alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
-                alt.Tooltip("rt_med:Q", title="Median RT (s)", format=".3f"),
-                alt.Tooltip("n:Q", title="Trials (count)"),
-            ],
+        rt_chart = (
+            base.mark_bar()
+            .encode(
+                x=alt.X("stim_level:Q", title="Coherence (proportion)"),
+                y=alt.Y("rt_mean:Q", title="Mean RT (s)"),
+                tooltip=[
+                    alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
+                    alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
+                    alt.Tooltip("rt_med:Q", title="Median RT (s)", format=".3f"),
+                    alt.Tooltip("n:Q", title="Trials (count)"),
+                ],
+            )
+            .properties(width=260, height=220, title="Mean RT by coherence")
         )
-        .properties(width=260, height=220, title="Mean RT by coherence")
-    )
-    chart = mo.ui.altair_chart(alt.hconcat(acc_chart, rt_chart))
-    mo.vstack([mo.md("### Plots"), chart], gap=0.5)
+        chart = mo.ui.altair_chart(alt.hconcat(acc_chart, rt_chart))
+        _plots = mo.vstack([mo.md("### Plots"), chart], gap=0.5)
+    _plots
     return
 
 
 @app.cell
-def _(fit_chains, fit_draws, fit_tune, mo, run_sim):
-    run_fit = mo.ui.run_button(label="Run hssm fit", disabled=not bool(run_sim.value))
+def _(mo):
+    hssm_data_source = mo.ui.radio(
+        options=["Simulation", "Demo"],
+        value="Simulation",
+        label="HSSM data source",
+    )
+    return hssm_data_source,
+
+
+@app.cell
+def _(
+    demo_df,
+    fit_chains,
+    fit_draws,
+    fit_tune,
+    hssm_data_source,
+    mo,
+    run_sim,
+):
+    _use_demo = hssm_data_source.value == "Demo"
+    _ready = (not demo_df.empty) if _use_demo else bool(run_sim.value)
+    run_fit = mo.ui.run_button(label="Run HSSM fit", disabled=not _ready)
     mo.vstack(
         [
             mo.md("### HSSM fitting"),
+            hssm_data_source,
             mo.accordion(
                 {
                     "Fitting settings": mo.vstack(
@@ -652,12 +703,25 @@ def _(fit_chains, fit_draws, fit_tune, mo, run_sim):
 
 
 @app.cell
-def _(df, fit_chains, fit_draws, fit_tune, mo, fit_hssm_model, run_fit, summarize_posterior):
+def _(
+    demo_df,
+    df,
+    fit_chains,
+    fit_draws,
+    fit_tune,
+    hssm_data_source,
+    mo,
+    fit_hssm_model,
+    run_fit,
+    summarize_posterior,
+):
     mo.stop(not run_fit.value)
 
-    header = mo.md("### HSSM fit (DDM drift depends on coherence)")
+    fit_df = demo_df if hssm_data_source.value == "Demo" else df
+    _source = hssm_data_source.value.lower()
+    header = mo.md(f"### HSSM fit ({_source} data, DDM drift depends on coherence)")
     model, idata = fit_hssm_model(
-        df,
+        fit_df,
         draws=int(fit_draws.value),
         tune=int(fit_tune.value),
         chains=int(fit_chains.value),
@@ -675,11 +739,11 @@ def _(df, fit_chains, fit_draws, fit_tune, mo, fit_hssm_model, run_fit, summariz
         )
     summary_block = mo.vstack(_blocks, gap=0.5)
     mo.vstack([header, summary_block], gap=0.75)
-    return model, idata
+    return fit_df, idata, model
 
 
 @app.cell
-def _(df, idata, mo, model):
+def _(fit_df, idata, mo, model):
     import base64 as _base64
     import io as _io
 
@@ -693,7 +757,7 @@ def _(df, idata, mo, model):
     _ax_or_grid = _hplot.plot_model_cartoon(
         model,
         idata=_idata_pp,
-        data=df,
+        data=fit_df,
         predictive_group="posterior_predictive",
         plot_data=True,
         n_samples=20,

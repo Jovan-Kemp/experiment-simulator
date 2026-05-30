@@ -49,7 +49,7 @@ flowchart TB
   simCtrl --> observerBB
   runSim --> observerBB
   observerBB --> df
-  participant -.->|"postMessage (planned)"| df
+  participant -->|"postMessage rows_json"| df
   df --> summarize
   df --> hssm
   runFit --> hssm
@@ -118,6 +118,7 @@ Current structure:
     - `coherence_demo.py` - orchestration (demo runner, controls, simulation, plotting, model calls)
     - `coherence_timeline.py` - jsPsych demo timeline (intro, countdown, motion + feedback) and runner config
     - `motion_stimulus_plugin.py` - registers `motion_rdk` `AFCStimulusPlugin` for constant-stimuli presentation
+    - `motion_coherence_export.py` - task adapter: jsPsych rows → motion `DataFrame` for HSSM/simulation
     - `coherence_demo.css` - marimo UI styles for the demonstration
 - `schemas/`
   - `contracts.py` - shared typed contracts (`ExperimentParams`, `Trial`, result message types)
@@ -139,10 +140,10 @@ Current structure:
   - `embed.py` - marimo `srcdoc` iframe helper
   - `jspsych_runner.html` - runner page skeleton
   - `jspsych_runner.css` - runner layout overrides (inlined)
-  - `jspsych_runner_core.js` - generic timeline decode, plugin bind, jsPsych lifecycle
+  - `jspsych_runner_core.js` - generic timeline decode, plugin bind, jsPsych lifecycle, `postMessage` export
   - `jspsych_runner_boot.js` - reads injected config/timeline and starts core
+  - `jspsych_export.py` - task-agnostic jsPsych row parsing, `DataFrame` pipeline, marimo `postMessage` bridge
   - `demo_results_charts.js` - in-iframe Vega-Lite accuracy/RT charts after demo completion
-  - `demo_results_charts.js` - optional end-of-run charts in jsPsych iframe
 - `analysis/`
   - `hssm_pipeline.py` - fit/summarize helpers for HSSM analyses
   - `descriptive_stats.py` - d-prime and standard error descriptive statistics helpers
@@ -159,7 +160,7 @@ Current structure:
 Role:
 
 - assembles the end-to-end interactive workflow in marimo
-- includes an interactive participant-like demo block above simulation controls
+- includes an interactive participant-like demo block above simulation controls (iframe + `demo_df` export)
 - exposes UI controls for coherence levels, dot lifetime, trials/participants, and observer parameters
 - uses separate run controls for simulation and HSSM fit
 - renders task previews in the notebook UI
@@ -192,7 +193,7 @@ Key helper structure:
 Role:
 
 - ``ExperimentParams``, ``Trial``, ``JsPsychTrial``, ``SimulatedObservation``, ``JsPsychResultsMessage``
-- shared data shapes for trial generators, experiment organization, jsPsych adapters, and analysis ingest
+- shared data shapes for trial generators, experiment organization, jsPsych adapters, and analysis export
 
 ### `schemas/trial_generator.py`
 
@@ -276,6 +277,16 @@ Why it exists:
 - visual preview logic should not live inside trial-generation or observer classes
 - allows changing rendering implementation (Canvas, jsPsych plugin views, media assets) without changing trial or analysis code
 
+### `runtime/jspsych_export.py`
+
+Role:
+
+- **Task-agnostic** jsPsych participant export for marimo apps
+- `flatten_jspsych_row`, `parse_rows_json`, `jspsych_rows_to_dataframe(include_row, row_to_record, columns)`
+- `create_jspsych_marimo_bridge()` — `mo.ui.anywidget` listener for iframe `rows_json` (`DEFAULT_MESSAGE_TYPE`)
+
+Task-specific filters and record mappers live under `experiments/<task>/` (e.g. `motion_coherence_export.py`).
+
 ### `runtime/jspsych_runner.py`
 
 Role:
@@ -290,6 +301,83 @@ Role:
 Role:
 
 - wraps runner HTML in a marimo-safe `<iframe srcdoc="...">` helper
+
+### jsPsych → marimo (Python) participant data export
+
+Browsers cannot write project files on the server. Participant trials leave the jsPsych iframe via **`window.parent.postMessage`**, are captured in marimo with **`mo.ui.anywidget`**, and are normalized in Python to the same `DataFrame` columns as simulation (`subj`, `stim_level`, `choice_index`, `response`, `rt`, `correct`).
+
+#### End-to-end flow
+
+```mermaid
+sequenceDiagram
+  participant Iframe as jsPsych iframe
+  participant Core as jspsych_runner_core.js
+  participant Bridge as JsPsychMarimoBridge
+  participant Marimo as marimo cell
+  participant Py as motion_coherence_export.py
+
+  Iframe->>Core: on_finish experiment
+  Core->>Core: rows_json = jsPsych.data.get().json()
+  Core->>Bridge: postMessage type jspsych-results rows_json
+  Bridge->>Marimo: mo.ui.anywidget syncs rows_json trait
+  Marimo->>Py: motion_trials_dataframe(rows_json)
+  Py->>Marimo: demo_df
+```
+
+#### 1. Export from the iframe (`runtime/jspsych_runner_core.js`)
+
+On experiment end, use jsPsych’s **`.json()`** export and post that string to the parent. Do **not** use `jsPsych.data.get().values()` with `JSON.stringify` — custom trial fields (`task`, `stim_level`, `correct`, …) are dropped and Python will see only plugin metadata.
+
+```javascript
+const rowsJson = jsPsych.data.get().json();
+window.parent.postMessage(
+  { type: "jspsych-results", rows_json: rowsJson },
+  "*",
+);
+```
+
+`RunnerConfig.results_message_type` defaults to `"jspsych-results"`. The coherence demo sets this via `coherence_runner_config()`.
+
+#### 2. Capture in marimo (`runtime/jspsych_export.py`)
+
+```python
+from runtime.jspsych_export import create_jspsych_marimo_bridge
+
+demo_results = create_jspsych_marimo_bridge()
+```
+
+`create_jspsych_marimo_bridge()` returns **`mo.ui.anywidget(...)`** so trait updates re-run downstream cells. The widget listens for `postMessage` and syncs `rows_json`. Read data only in **downstream** cells.
+
+**Marimo layout rule:** the cell that builds the demo **iframe must not** depend on `demo_results`. Otherwise, when export updates, marimo re-runs the iframe cell and the demo restarts at the intro screen.
+
+#### 3. Task adapter (example: `experiments/coherence_demo/motion_coherence_export.py`)
+
+Runtime provides a generic pipeline; each task supplies a row filter and record mapper:
+
+```python
+from runtime.jspsych_export import jspsych_rows_to_dataframe
+
+df = jspsych_rows_to_dataframe(
+    rows_json,
+    include_row=my_task_row_predicate,
+    row_to_record=my_task_row_mapper,
+    columns=MY_COLUMNS,
+)
+```
+
+The coherence demo uses the bundled adapter:
+
+```python
+from motion_coherence_export import motion_trials_dataframe
+
+demo_df = motion_trials_dataframe(demo_results.value["rows_json"])
+```
+
+`motion_coherence_export.py` merges nested jsPsych `data`, keeps `task == "motion_coherence"` trials, maps lowercase arrow responses, and converts `rt` from ms to seconds when needed. Errors raise normally (no silent fallbacks).
+
+#### Dependencies
+
+- `anywidget` (see `pyproject.toml`) for the marimo bridge widget.
 
 ### jsPsych v7 runtime contract
 
@@ -336,7 +424,8 @@ Role:
 5. After intro, a 3-second countdown runs; then motion trials call `__startAllMotionCanvases` on `on_load`.
 6. Scoring uses `__jsPsychInstance` on `on_finish`; feedback trials follow each motion trial.
 7. On experiment end, in-iframe Vega-Lite charts summarize accuracy and mean RT by coherence (`demo_results_charts.js`).
-8. Runner also posts `{ type: "jspsych-results", rows }` to parent (marimo ingest path not yet wired).
+8. Runner posts `{ type: "jspsych-results", rows_json }` to the parent page (`jspsych_runner_core.js`).
+9. `create_jspsych_marimo_bridge()` receives `rows_json`; a downstream marimo cell builds `demo_df` via `motion_trials_dataframe`.
 
 ### Python simulation + HSSM
 

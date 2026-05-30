@@ -7,7 +7,6 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 
 from runtime.jspsych_plugins import (
@@ -41,22 +40,18 @@ class RunnerConfig:
     )
 
 
-@lru_cache(maxsize=1)
 def _runner_template() -> str:
     return (_RUNTIME_DIR / "jspsych_runner.html").read_text(encoding="utf-8")
 
 
-@lru_cache(maxsize=1)
 def _runner_css() -> str:
     return (_RUNTIME_DIR / "jspsych_runner.css").read_text(encoding="utf-8")
 
 
-@lru_cache(maxsize=1)
 def _runner_core_js() -> str:
     return (_RUNTIME_DIR / "jspsych_runner_core.js").read_text(encoding="utf-8")
 
 
-@lru_cache(maxsize=1)
 def _runner_boot_js() -> str:
     return (_RUNTIME_DIR / "jspsych_runner_boot.js").read_text(encoding="utf-8")
 

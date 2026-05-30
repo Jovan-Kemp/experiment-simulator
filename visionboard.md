@@ -34,7 +34,7 @@ The key idea is **interchangeability**:
 See the mermaid pipeline flowchart in [DOCUMENTATION.md](DOCUMENTATION.md#pipeline-flowchart) (trials → Observer vs participant → descriptive summaries → HSSM fit).
 
 1. User explores live motion previews (coherence A/B/C sliders, adjustable dot lifetime).
-2. User runs the jsPsych demo (intro → countdown → motion trials with feedback → in-iframe result charts); **Restart demo** rebuilds the iframe.
+2. User runs the jsPsych demo (intro → countdown → motion trials with feedback → in-iframe result charts); results sync to Python as `demo_df` via `postMessage` + `mo.ui.anywidget`; **Restart demo** rebuilds the iframe.
 3. User configures observer and sampling parameters.
 4. Simulation generates trial-level response/RT data via `NAfcObserver`.
 5. HSSM fitting is run from dedicated controls.
@@ -42,7 +42,7 @@ See the mermaid pipeline flowchart in [DOCUMENTATION.md](DOCUMENTATION.md#pipeli
 
 ## Near-Term Priorities
 
-- Finish wiring `postMessage` jsPsych results into a validated dataframe ingest path (human participants).
+- Finish wiring `postMessage` jsPsych results into a validated dataframe export path (human participants).
 - Add regression coverage for jsPsych v7 runner callbacks (`window.__jsPsychInstance` contract).
 - Keep run controls explicit and predictable (simulate first, fit second).
 - Improve robustness and interpretability of HSSM outputs under low-sample settings.
@@ -59,7 +59,7 @@ Evolve from a single demo into a reusable experiment framework where task templa
 - Add a task registry API so new paradigms can be selected and launched without editing `experiments/coherence_demo/coherence_demo.py`.
 - Define a shared trial/result adapter interface between `schemas/`, `runtime/`, and `analysis/` to reduce task-specific glue code.
 - Implement persistent run-state management in the app (simulation complete, fit complete, last dataset) so workflows are explicit and recoverable.
-- Ingest human jsPsych results (`postMessage` -> dataframe schema) parallel to the simulated observer path.
+- Use `demo_df` alongside simulated `df` in analysis cells (shared `motion_coherence_export` / `FIT_DF_COLUMNS` schema). **Done:** HSSM section radio selects Simulation vs Demo.
 - Expand `analysis/` with reusable report builders (summary tables + standard plots) independent of any single task.
 - Add validation tests for `observers/evidence_observer.py`, `schemas/trial_generator.py`, and `analysis/descriptive_stats.py` to lock in expected behavior.
 - Add a second task prototype (non-motion or multi-choice variant) to verify interchangeability claims in practice.
