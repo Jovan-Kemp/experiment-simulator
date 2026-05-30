@@ -1,3 +1,7 @@
+# Shared typed contracts for trials, experiments, and jsPsych result payloads.
+# Separates stimulus semantics (``stimulus_factors``) from presentation-only ``display_params``.
+# Imported by trial generators, timelines, observers, and analysis code.
+
 from __future__ import annotations
 
 from typing import TypedDict

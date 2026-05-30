@@ -47,7 +47,7 @@ See the mermaid pipeline flowchart in [DOCUMENTATION.md](DOCUMENTATION.md#pipeli
 - Keep run controls explicit and predictable (simulate first, fit second).
 - Improve robustness and interpretability of HSSM outputs under low-sample settings.
 - Expand reusable statistics utilities (`analysis/descriptive_stats.py`).
-- Strengthen boundaries between task-agnostic and task-specific code: motion-specific logic is still split across `schemas/jspsych_timeline.py` and `experiments/coherence_demo/coherence_demo.py`, which makes reuse and extension harder.
+- Strengthen boundaries between task-agnostic and task-specific code: motion-specific logic is still split across `experiments/coherence_demo/motion_stimulus_plugin.py` and `coherence_demo.py`, which makes reuse and extension harder.
 - Preserve clean module boundaries as new task types are added.
 
 ## Long-Term Direction
@@ -86,7 +86,7 @@ The browser runner is split into composable assets under `runtime/`:
 
 - **Core** (`jspsych_runner_core.js`): timeline decode, plugin binding, jsPsych lifecycle, optional arrow-key scroll guard.
 - **Boot** (`jspsych_runner_boot.js`): reads base64-injected config + timeline.
-- **Stimulus display** (`runtime/stimulus_display/motion_rdk.js`): time-based motion (px/s), dot lifetime with edge/out-of-bounds respawn; started from trial `on_load`.
+- **Stimulus display** (`renderers/motion_coherence/motion_coherence.js`): time-based motion (px/s), dot lifetime with edge/out-of-bounds respawn; started from trial `on_load`.
 - **Demo charts** (`demo_results_charts.js`): Vega-Lite accuracy and mean RT bars in the iframe when `RunnerConfig.show_results_charts` is enabled.
 - **Assembly** (`jspsych_runner.py` + `.html` + `.css`): inlined into marimo `srcdoc` iframes.
 

@@ -1,3 +1,7 @@
+# Experiment-level orchestration: params, ordered trial-generator blocks, and simulation.
+# Merges shared ``display_params`` into each trial and exposes ``all_trials()`` / ``simulate()``.
+# Used by marimo demos and any Python-side batch observer runs.
+
 from __future__ import annotations
 
 from collections.abc import Callable

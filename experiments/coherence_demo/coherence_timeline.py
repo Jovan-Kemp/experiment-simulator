@@ -1,11 +1,17 @@
+# jsPsych timeline assembly for the motion-coherence demonstration (intro, countdown, trials, feedback).
+# Builds an ``ExperimentGenerator`` from demo levels and calls ``constant_stimuli_afc_timeline``.
+# Exports ``coherence_runner_config`` and helpers used by the marimo coherence demo app.
+
 from __future__ import annotations
 
 from collections.abc import Callable
 
 from runtime.jspsych_runner import RunnerConfig
 from schemas.experimentGenerator import ExperimentGenerator
-from schemas.jspsych_timeline import motion_to_jspsych_timeline
+from schemas.timelines.constant_stimuli_afc_timeline import constant_stimuli_afc_timeline
 from schemas.trial_generator import FactorTrialGenerator
+
+import motion_stimulus_plugin  # noqa: F401 — registers motion_rdk stimulus plugin
 
 INTRO_TRIAL: dict[str, object] = {
     "type": "html-button-response",
@@ -57,7 +63,11 @@ def coherence_runner_config(*, title: str = "jsPsych Demo") -> RunnerConfig:
     return RunnerConfig(
         title=title,
         plugins=("html-keyboard-response", "html-button-response"),
-        extra_scripts=("stimulus_display/motion_rdk.js", "demo_results_charts.js"),
+        extra_scripts=(
+            "renderers/motion_coherence/motion_coherence.js",
+            "demo_results_charts.js",
+        ),
+        extra_styles=("renderers/motion_coherence/motion_coherence.css",),
         input_arrow_keys=True,
         show_results_charts=True,
         results_task_filter="motion_coherence",
@@ -102,8 +112,11 @@ def build_coherence_timeline(
         trial["data"]["trial_num"] = idx
         experiment.add_trial_generator(FactorTrialGenerator([trial]))
 
-    motion_trials = motion_to_jspsych_timeline(experiment.all_trials())  # type: ignore[arg-type]
+    afc_trials = constant_stimuli_afc_timeline(
+        experiment.all_trials(),  # type: ignore[arg-type]
+        stimulus_plugin="motion_rdk",
+    )
     timeline: list[dict[str, object]] = [INTRO_TRIAL, *COUNTDOWN_TRIALS]
-    for trial in motion_trials:
+    for trial in afc_trials:
         timeline.extend([trial, FEEDBACK_TRIAL])
     return timeline

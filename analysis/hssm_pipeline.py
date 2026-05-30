@@ -1,3 +1,7 @@
+# HSSM-oriented analysis pipeline for simulated and human behavioral data.
+# Summarizes accuracy/RT by condition, fits drift-diffusion models, and extracts parameter tables.
+# Called from the coherence marimo demo after ``ExperimentGenerator.simulate()`` produces rows.
+
 from __future__ import annotations
 
 import numpy as np

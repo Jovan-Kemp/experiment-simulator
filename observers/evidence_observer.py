@@ -1,3 +1,7 @@
+# Virtual n-AFC observer driven by latent evidence accumulation and lapse trials.
+# Maps ``stimulus_factors`` to side strengths, then returns ``(choice_index, rt)`` for simulation.
+# Default decision model used by ``ExperimentGenerator.simulate()`` in the coherence demo.
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

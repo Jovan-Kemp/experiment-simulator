@@ -85,9 +85,9 @@ flowchart TB
 
   subgraph Part["Participant"]
     direction -->|participant| presHook["Presentation layer\n(swap per task)"]
-    presHook --> defaultPres["default:\nmotion_to_jspsych_timeline\n+ motion_trial_stimulus_html"]
+    presHook --> defaultPres["default:\nconstant_stimuli_afc_timeline\n+ motion_rdk plugin"]
     defaultPres --> runner["jspsych_runner iframe"]
-    runner --> rdk["motion_rdk.js"]
+    runner --> rdk["motion_coherence.js"]
     rdk --> human["Human perception +\nkeypress"]
     human --> score["Scoring on_finish"]
     score --> outHuman["(response, rt, correct)"]
@@ -101,7 +101,7 @@ flowchart TB
 | `stimulus_to_strengths` | `motion_stimulus_to_strengths` | Another per-task mapper in `coherence_demo/coherence_demo.py` or at `NAfcObserver` construction |
 | `evidence_model` | `_default_evidence_model` | Custom `Callable` on `NAfcObserver` |
 | Observer class | `NAfcObserver` | Another class under `observers/` with the same `(factors, ndt) → (choice, rt)` surface |
-| Presentation (participant) | `motion_to_jspsych_timeline` + `motion_trial_stimulus_html` | Other `renderers/` + `schemas/jspsych_timeline.py` builders |
+| Presentation (participant) | `constant_stimuli_afc_timeline` + `motion_rdk` stimulus plugin | Other `AFCStimulusPlugin` + `renderers/` HTML |
 
 **Tuned on `NAfcObserver` but fixed policy** (not plug-in hooks): `sigma0`, `sigma_scale`, `lapse_rate`, `evidence_weight`, `rt_scale`, `rt_noise`. Decision and RT rules inside `choose()` stay unless you replace the agent class.
 
@@ -117,14 +117,19 @@ Current structure:
   - `coherence_demo/` - marimo coherence → HSSM demonstration
     - `coherence_demo.py` - orchestration (demo runner, controls, simulation, plotting, model calls)
     - `coherence_timeline.py` - jsPsych demo timeline (intro, countdown, motion + feedback) and runner config
+    - `motion_stimulus_plugin.py` - registers `motion_rdk` `AFCStimulusPlugin` for constant-stimuli presentation
     - `coherence_demo.css` - marimo UI styles for the demonstration
 - `schemas/`
   - `contracts.py` - shared typed contracts (`ExperimentParams`, `Trial`, result message types)
   - `trial_generator.py` - abstract `TrialGenerator` and `FactorTrialGenerator`
   - `experimentGenerator.py` - `ExperimentGenerator`: experiment params + multiple `TrialGenerator` blocks
-  - `jspsych_timeline.py` - generic jsPsych timeline adapters and motion trial builder
+  - `timelines/`
+    - `constant_stimuli_afc_timeline.py` - factorized n-AFC jsPsych timeline + stimulus plugin registry
 - `renderers/`
-  - `jspsych_preview.py` - browser Canvas/iframe stimulus previews
+  - `motion_coherence/` - RDK stimulus package
+    - `motion_coherence_stimulus.py` - Python HTML helpers for jsPsych trials and marimo previews
+    - `motion_coherence.js` - canvas animator + DOM helper (`MotionCoherence`, `__startAllMotionCanvases`)
+    - `motion_coherence.css` - layout for stimulus wrapper and canvas
 - `observers/`
   - `evidence_observer.py` - virtual observer behavior models
   - `observersDescriptions.md` - notes and flowcharts for each agent (`NAfcObserver` decision and RT rules)
@@ -137,7 +142,7 @@ Current structure:
   - `jspsych_runner_core.js` - generic timeline decode, plugin bind, jsPsych lifecycle
   - `jspsych_runner_boot.js` - reads injected config/timeline and starts core
   - `demo_results_charts.js` - in-iframe Vega-Lite accuracy/RT charts after demo completion
-  - `stimulus_display/motion_rdk.js` - motion RDK canvas animation (optional per `RunnerConfig`)
+  - `demo_results_charts.js` - optional end-of-run charts in jsPsych iframe
 - `analysis/`
   - `hssm_pipeline.py` - fit/summarize helpers for HSSM analyses
   - `descriptive_stats.py` - d-prime and standard error descriptive statistics helpers
@@ -208,15 +213,14 @@ Role:
 
 Simulation and the motion demo attach one ``FactorTrialGenerator`` per condition level (or per demo trial) via ``add_trial_generator()``.
 
-### `schemas/jspsych_timeline.py`
+### `schemas/timelines/constant_stimuli_afc_timeline.py`
 
 Role:
 
-- generic `to_jspsych_timeline(trials, trial_builder, ...)`
-- motion-specific `build_motion_keyboard_trial` + `motion_to_jspsych_timeline`
-- reads display parameters from each trial's `display_params`
-- uses per-trial `presentation_duration_ms` when set
-- motion trial `on_finish` scoring and `on_load` canvas hooks (strings revived in browser)
+- `AFCStimulusPlugin` — pluggable `render_stimulus(trial, index)` plus optional `on_load` / `on_finish`
+- `constant_stimuli_afc_timeline(trials, stimulus_plugin=...)` — maps factorized n-AFC trials to jsPsych `html-keyboard-response` entries
+- `build_afc_keyboard_trial` — single-trial builder; reads `choices`, `correct_key`, `presentation_duration_ms`, and `display_params` from the trial contract
+- `register_stimulus_plugin` / `get_stimulus_plugin` — named plugins (e.g. motion RDK registered in `experiments/coherence_demo/motion_stimulus_plugin.py`)
 
 ### `experiments/coherence_demo/coherence_timeline.py`
 
@@ -225,7 +229,7 @@ Role:
 - coherence-demo-only jsPsych timeline: intro → 3–2–1 countdown → motion trials (+ per-trial feedback)
 - exports `coherence_runner_config()`, `build_coherence_demo_levels()`, `build_coherence_timeline()`
 - demo coherence levels come from marimo sliders (A/B/C)
-- `coherence_runner_config()` enables in-iframe result charts and loads `motion_rdk.js`
+- `coherence_runner_config()` enables in-iframe result charts and loads `motion_coherence.js` + CSS
 
 ### `observers/evidence_observer.py`
 
@@ -251,15 +255,15 @@ Why it exists:
 - clean separation between *task definition* and *response-generation policy*
 - enables swapping human-input channels vs simulated agents with minimal orchestration changes
 
-### `renderers/jspsych_preview.py`
+### `renderers/motion_coherence/`
 
 Role:
 
-- provides UI-facing stimulus preview rendering helpers
-- generates browser iframe/Canvas snippets for marimo slider previews (inline animation script)
-- provides trial stimulus canvas markup (data-attribute based) for jsPsych keyboard trials
+- `motion_coherence_stimulus.py` — marimo preview iframes and jsPsych trial canvas markup
+- `motion_coherence.js` — RDK animator and `MotionCoherence.createMotionCoherenceCanvas` DOM helper
+- `motion_coherence.css` — stimulus wrapper and canvas layout (via `RunnerConfig.extra_styles`)
 
-Motion stimulus contract (canvas `data-*` attributes read by `motion_rdk.js`):
+Motion stimulus contract (canvas `data-*` attributes read by `motion_coherence.js`):
 
 - `data-stim-level`, `data-dir-sign`, `data-seed`, `data-n-dots`
 - `data-speed-px-s` — motion speed in pixels per second (time-based `requestAnimationFrame` updates)
@@ -307,8 +311,8 @@ function(data) {
 Extension pattern for new tasks:
 
 1. Add renderer HTML contract (if needed) under `renderers/`
-2. Add optional browser stimulus display script under `runtime/stimulus_display/`
-3. Add trial builder adapter under `schemas/` (or reuse `to_jspsych_timeline`)
+2. Add browser stimulus assets under `renderers/<paradigm>/` (JS/CSS) and reference via `RunnerConfig.extra_scripts` / `extra_styles`
+3. Register an `AFCStimulusPlugin` and pass it to `constant_stimuli_afc_timeline` (or reuse `map_trials_to_jspsych_timeline` with a custom builder)
 4. Pass `RunnerConfig(plugins=(...), extra_scripts=(...), input_arrow_keys=...)` when building HTML
 5. Use `window.__jsPsychInstance` in any eval'd jsPsych trial callbacks
 

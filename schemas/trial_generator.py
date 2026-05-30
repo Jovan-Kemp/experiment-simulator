@@ -1,3 +1,7 @@
+# Abstract and concrete trial-sequence builders for factorized experiments.
+# ``TrialGenerator`` defines iteration; ``FactorTrialGenerator`` holds pre-built trial dicts.
+# Consumed by ``ExperimentGenerator`` to assemble full experiment blocks.
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

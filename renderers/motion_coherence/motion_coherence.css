@@ -1,0 +1,18 @@
+.motion-coherence-stimulus {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+.motion-coherence-canvas {
+  background: #fff;
+  flex-shrink: 0;
+  display: block;
+}
+
+.motion-coherence-preview {
+  margin: 0;
+  background: #fff;
+  overflow: hidden;
+}

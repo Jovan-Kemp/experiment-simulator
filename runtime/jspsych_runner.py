@@ -1,3 +1,7 @@
+# Builds standalone jsPsych 7 runner HTML (CDN plugins, timeline JSON, custom glue scripts).
+# ``RunnerConfig`` selects plugins, extra stimulus scripts, and iframe behavior for marimo embeds.
+# Bridges Python-assembled timelines to in-browser ``jsPsych.run()`` via ``jspsych_runner_core.js``.
+
 from __future__ import annotations
 
 import base64
@@ -16,6 +20,9 @@ from runtime.jspsych_plugins import (
 _RUNTIME_DIR = Path(__file__).resolve().parent
 
 
+_PROJECT_ROOT = _RUNTIME_DIR.parent
+
+
 @dataclass(frozen=True)
 class RunnerConfig:
     """Browser runner options injected as base64 JSON."""
@@ -23,7 +30,8 @@ class RunnerConfig:
     title: str = "jsPsych Runtime"
     display_element: str = "jspsych-target"
     plugins: tuple[str, ...] = DEFAULT_PLUGINS
-    extra_scripts: tuple[str, ...] = ()  # paths under runtime/, e.g. stimulus_display/motion_rdk.js
+    extra_scripts: tuple[str, ...] = ()  # runtime/ or renderers/ paths
+    extra_styles: tuple[str, ...] = ()  # runtime/ or renderers/ paths
     input_arrow_keys: bool = False
     results_message_type: str = "jspsych-results"
     show_results_charts: bool = False
@@ -53,9 +61,19 @@ def _runner_boot_js() -> str:
     return (_RUNTIME_DIR / "jspsych_runner_boot.js").read_text(encoding="utf-8")
 
 
-def _load_runtime_script(relative_path: str) -> str:
-    path = _RUNTIME_DIR / relative_path
+def _resolve_project_path(relative_path: str) -> Path:
+    if relative_path.startswith("renderers/"):
+        return _PROJECT_ROOT / relative_path
+    return _RUNTIME_DIR / relative_path
+
+
+def _load_project_asset(relative_path: str) -> str:
+    path = _resolve_project_path(relative_path)
     return path.read_text(encoding="utf-8")
+
+
+def _load_runtime_script(relative_path: str) -> str:
+    return _load_project_asset(relative_path)
 
 
 def _encode_json_b64(payload: object) -> str:
@@ -81,10 +99,18 @@ def _vega_script_tags() -> str:
     )
 
 
+def _extra_style_blocks(extra_styles: tuple[str, ...]) -> str:
+    blocks: list[str] = []
+    for rel in extra_styles:
+        css = _load_project_asset(rel)
+        blocks.append(css)
+    return "\n".join(blocks)
+
+
 def _extra_script_blocks(extra_scripts: tuple[str, ...]) -> str:
     blocks: list[str] = []
     for rel in extra_scripts:
-        script = _load_runtime_script(rel)
+        script = _load_project_asset(rel)
         blocks.append(f"  <script>\n{script}\n  </script>")
     return "\n".join(blocks)
 
@@ -103,6 +129,7 @@ def build_jspsych_runner_html(
             display_element=cfg.display_element,
             plugins=cfg.plugins,
             extra_scripts=cfg.extra_scripts,
+            extra_styles=cfg.extra_styles,
             input_arrow_keys=cfg.input_arrow_keys,
             results_message_type=cfg.results_message_type,
             show_results_charts=cfg.show_results_charts,
@@ -139,6 +166,7 @@ def build_jspsych_runner_html(
         )
         .replace("__PLUGIN_SCRIPT_TAGS__", _plugin_script_tags(cfg.plugins))
         .replace("__RUNNER_CSS__", _runner_css())
+        .replace("__EXTRA_STYLE_BLOCKS__", _extra_style_blocks(cfg.extra_styles))
         .replace("__RUNNER_CORE_JS__", _runner_core_js())
         .replace("__EXTRA_SCRIPT_BLOCKS__", _extra_script_blocks(cfg.extra_scripts))
         .replace("__RUNNER_BOOT_JS__", boot_js)

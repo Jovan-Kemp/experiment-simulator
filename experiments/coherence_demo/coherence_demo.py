@@ -1,5 +1,9 @@
 import marimo
 
+# Marimo app: motion-coherence demo from trial generation through simulation and HSSM fitting.
+# Wires sliders, jsPsych participant iframe, ``NAfcObserver`` simulation, and analysis plots.
+# Entry point: ``marimo run experiments/coherence_demo/coherence_demo.py``.
+
 # Ensure project root is importable when running via
 # `marimo run experiments/coherence_demo/coherence_demo.py`.
 import sys
@@ -66,7 +70,9 @@ def _(mo, project_root):
         summarize_behavior,
         summarize_posterior,
     )
-    from renderers.jspsych_preview import motion_coherence_preview_iframe_html
+    from renderers.motion_coherence.motion_coherence_stimulus import (
+        motion_coherence_preview_iframe_html,
+    )
     from runtime.embed import render_srcdoc_iframe
     from runtime.jspsych_runner import build_jspsych_runner_html
     from schemas.experimentGenerator import ExperimentGenerator
@@ -354,29 +360,73 @@ def _(mo):
         label="Participants (count)",
     )
 
-    sigma0 = mo.ui.slider(
-        0.0, 2.0, value=0.0, step=0.05, label="σ₀ — noise floor (evidence SD)"
+    sigma0 = mo.ui.number(
+        start=0.0,
+        stop=2.0,
+        value=0.0,
+        step=0.05,
+        label="σ₀ — noise floor (evidence SD)",
     )
-    sigma_scale = mo.ui.slider(
-        0.0, 10.0, value=0.9, step=0.05, label="σ scale (evidence SD / coherence)"
+    sigma_scale = mo.ui.number(
+        start=0.0,
+        stop=10.0,
+        value=0.9,
+        step=0.05,
+        label="σ scale (evidence SD / coherence)",
     )
-    lapse = mo.ui.slider(
-        0.0, 0.2, value=0.0, step=0.005, label="Lapse rate (proportion)"
+    lapse = mo.ui.number(
+        start=0.0,
+        stop=0.2,
+        value=0.0,
+        step=0.005,
+        label="Lapse rate (proportion)",
     )
 
-    ndt = mo.ui.slider(0.05, 1.0, value=0.30, step=0.01, label="Non-decision time (s)")
-    rt_scale = mo.ui.slider(0.05, 1.0, value=0.35, step=0.05, label="RT scale (s)")
-    rt_noise = mo.ui.slider(0.0, 0.2, value=0.03, step=0.01, label="RT noise SD (s)")
+    ndt = mo.ui.number(
+        start=0.05,
+        stop=1.0,
+        value=0.30,
+        step=0.01,
+        label="Non-decision time (s)",
+    )
+    rt_scale = mo.ui.number(
+        start=0.05,
+        stop=1.0,
+        value=0.35,
+        step=0.05,
+        label="RT scale (s)",
+    )
+    rt_noise = mo.ui.number(
+        start=0.0,
+        stop=0.2,
+        value=0.03,
+        step=0.01,
+        label="RT noise SD (s)",
+    )
 
     run_sim = mo.ui.run_button(label="Run simulation")
 
-    fit_draws = mo.ui.slider(
-        100, 2000, value=600, step=100, label="HSSM posterior draws (samples)"
+    fit_draws = mo.ui.number(
+        start=100,
+        stop=2000,
+        value=600,
+        step=100,
+        label="HSSM posterior draws (samples)",
     )
-    fit_tune = mo.ui.slider(
-        100, 2000, value=600, step=100, label="HSSM warmup tune (samples)"
+    fit_tune = mo.ui.number(
+        start=100,
+        stop=2000,
+        value=600,
+        step=100,
+        label="HSSM warmup tune (samples)",
     )
-    fit_chains = mo.ui.slider(1, 4, value=2, step=1, label="HSSM MCMC chains (count)")
+    fit_chains = mo.ui.number(
+        start=1,
+        stop=4,
+        value=2,
+        step=1,
+        label="HSSM MCMC chains (count)",
+    )
     return (
         fit_chains,
         fit_draws,

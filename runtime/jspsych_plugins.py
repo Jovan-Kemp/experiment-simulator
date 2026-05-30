@@ -1,3 +1,7 @@
+# jsPsych 7 CDN URLs and default plugin registry for the browser runner.
+# Maps plugin type strings (e.g. ``html-keyboard-response``) to script URLs and global constructors.
+# Imported by ``jspsych_runner`` when assembling participant-facing experiment pages.
+
 from __future__ import annotations
 
 # jsPsych 7 plugin CDN scripts and browser global constructor names.

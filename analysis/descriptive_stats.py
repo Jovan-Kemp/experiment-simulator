@@ -1,3 +1,7 @@
+# Descriptive psychophysics statistics independent of hierarchical model fitting.
+# Computes d', bias, and related summaries from choice counts and response rates.
+# Reusable across paradigms when raw trial tables are available.
+
 from __future__ import annotations
 
 import math

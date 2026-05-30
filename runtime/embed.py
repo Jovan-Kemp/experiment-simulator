@@ -1,3 +1,6 @@
+# Small HTML embedding helpers for marimo and other Python UIs.
+# Wraps standalone HTML in sandboxed ``srcdoc`` iframes for safe in-notebook preview.
+
 from __future__ import annotations
 
 
