@@ -41,6 +41,7 @@ def fit_hssm_model(df: pd.DataFrame, *, draws: int, tune: int, chains: int):
         chains=int(chains),
         cores=min(4, int(chains)),
         progressbar=True,
+        mp_context="spawn"
     )
     return model, idata
 

@@ -58,7 +58,7 @@ flowchart TB
 
 After **Run simulation**, marimo builds `df` and renders `summarize_behavior` plots. **Run HSSM fit** is a separate control that calls `fit_hssm_model` then `summarize_posterior` (and the model cartoon).
 
-The **Observer** node is a black box in this view. The diagram below is the same stage opened up: simulated path implements the box in Python (`observers/evidence_observer.py`); the participant path replaces it with browser presentation plus human input.
+The **Observer** node is a black box in this view. The diagram below is the same stage opened up: simulated path implements the box in Python (`observers/heuristic_observer.py`); the participant path replaces it with browser presentation plus human input.
 
 ### Observer: simulated vs participant
 
@@ -79,7 +79,7 @@ flowchart TB
     evidenceHook -.->|optional| customEV["custom evidence_model"]
     defaultEV --> decision["Lapse draw · argmax / threshold"]
     customEV -.-> decision
-    decision --> rtPath["RT from margin or lapse rule"]
+    decision --> rtPath["RT from coherence or lapse rule"]
     rtPath --> outSim["(choice_index, rt)"]
   end
 
@@ -132,7 +132,7 @@ Current structure:
     - `motion_coherence.js` - canvas animator + DOM helper (`MotionCoherence`, `__startAllMotionCanvases`)
     - `motion_coherence.css` - layout for stimulus wrapper and canvas
 - `observers/`
-  - `evidence_observer.py` - virtual observer behavior models
+  - `heuristic_observer.py` - virtual observer behavior models
   - `observersDescriptions.md` - notes and flowcharts for each agent (`NAfcObserver` decision and RT rules)
 - `runtime/`
   - `jspsych_runner.py` - `RunnerConfig` + HTML assembly (timeline/config base64 injection)
@@ -232,7 +232,7 @@ Role:
 - demo coherence levels come from marimo sliders (A/B/C)
 - `coherence_runner_config()` enables in-iframe result charts and loads `motion_coherence.js` + CSS
 
-### `observers/evidence_observer.py`
+### `observers/heuristic_observer.py`
 
 Role:
 
@@ -248,7 +248,7 @@ Current `NAfcObserver` behavior:
 - Sensory noise uses `sigma = sigma0 + sigma_scale * c` where `c` is driven by task difficulty (`1 - coherence`, `coherence = max(stim_strengths)`).
 - Lapse path is explicit: with probability `lapse_rate`, choice is random and RT is generated from lapse RT logic.
 - Non-lapse choice for n-AFC uses `argmax(evidence)`; 1-stimulus mode uses sign-threshold detection.
-- Non-lapse RT uses evidence margin (`abs(chosen - max(other))` for n-AFC) with `rt = ndt + rt_scale / margin_abs + noise`.
+- Non-lapse RT: `rt = ndt + rt_scale × (1 − coherence) + noise`, with `coherence = max(stim_strengths)`.
 - Optional `evidence_model` can override latent evidence generation while preserving shared evidence for choice and non-lapse RT.
 
 Why it exists:

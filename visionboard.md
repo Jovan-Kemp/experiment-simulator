@@ -61,7 +61,7 @@ Evolve from a single demo into a reusable experiment framework where task templa
 - Implement persistent run-state management in the app (simulation complete, fit complete, last dataset) so workflows are explicit and recoverable.
 - Use `demo_df` alongside simulated `df` in analysis cells (shared `motion_coherence_export` / `FIT_DF_COLUMNS` schema). **Done:** HSSM section radio selects Simulation vs Demo.
 - Expand `analysis/` with reusable report builders (summary tables + standard plots) independent of any single task.
-- Add validation tests for `observers/evidence_observer.py`, `schemas/trial_generator.py`, and `analysis/descriptive_stats.py` to lock in expected behavior.
+- Add validation tests for `observers/heuristic_observer.py`, `schemas/trial_generator.py`, and `analysis/descriptive_stats.py` to lock in expected behavior.
 - Add a second task prototype (non-motion or multi-choice variant) to verify interchangeability claims in practice.
 - Provide environment profile docs/scripts for reproducible setup across Linux variants (system deps + Python/uv workflow).
 - Add lightweight CI checks (import/syntax/tests) so modular refactors stay safe as components grow.

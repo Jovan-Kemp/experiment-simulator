@@ -19,6 +19,17 @@
   object-fit: contain;
 }
 
+.coherence-demo-hook-block {
+  max-width: min(720px, 100%);
+}
+
+.coherence-demo-hook-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
 .coherence-demo-simulator-info {
   display: inline-flex;
   align-items: flex-start;

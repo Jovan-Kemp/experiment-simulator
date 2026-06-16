@@ -1,7 +1,7 @@
 import marimo
 
 # Marimo app: motion-coherence demo from trial generation through simulation and HSSM fitting.
-# Wires sliders, jsPsych participant iframe, ``NAfcObserver`` simulation, and analysis plots.
+# Wires sliders, participant demo iframe, ``NAfcObserver`` simulation, and analysis plots.
 # Entry point: ``marimo run experiments/coherence_demo/coherence_demo.py``.
 
 # Ensure project root is importable when running via
@@ -64,12 +64,13 @@ def _():
 
 @app.cell
 def _(mo, project_root):
-    from observers.evidence_observer import NAfcObserver
+    from observers.heuristic_observer import NAfcObserver
     from analysis.hssm_pipeline import (
         fit_hssm_model,
         summarize_behavior,
         summarize_posterior,
     )
+    from analysis.plotting import behavior_summary_charts
     from renderers.motion_coherence.motion_coherence_stimulus import (
         motion_coherence_preview_iframe_html,
     )
@@ -92,6 +93,7 @@ def _(mo, project_root):
         build_coherence_demo_levels,
         build_coherence_timeline,
         build_jspsych_runner_html,
+        behavior_summary_charts,
         coherence_runner_config,
         create_jspsych_marimo_bridge,
         fit_hssm_model,
@@ -106,7 +108,7 @@ def _(mo, project_root):
 
 
 @app.cell
-def _(mo, project_root):
+def _(app_dir, mo, project_root):
     import base64
 
     logo_b64 = base64.b64encode(
@@ -117,18 +119,29 @@ def _(mo, project_root):
         f'<img alt="HSSM" src="data:image/png;base64,{logo_b64}" />'
         f"</div>"
     )
-    intro = mo.md(
+    hook_b64 = base64.b64encode(
+        (app_dir / "assets" / "coherenceToDDMHook.png").read_bytes()
+    ).decode("ascii")
+    hook_block = mo.Html(
+        '<div class="coherence-demo-hook-block">'
+        '<img class="coherence-demo-hook-img" '
+        'alt="Random dot motion task linked to a drift diffusion model" '
+        f'src="data:image/png;base64,{hook_b64}" />'
+        "</div>"
+    )
+    intro_title = mo.md(
+        "## Demonstration of simulated experiment to HSSM pipeline with motion coherence paradigm"
+    )
+    intro_body = mo.md(
         r"""
-## Demonstration of simulated experiment to HSSM pipeline with motion coherence paradigm
-
 This example simulates a **binary left/right motion task** at **three coherence levels** you set with the sliders (shown side-by-side).
 
 - **Observer**: n-AFC virtual observer with **stimulus-level dependent Gaussian noise** and lapse rate.
-- **Task**: trials use **jsPsych** objects generated in Python.
+- **Task**: trials are generated and run in the in-browser demonstration.
 - **Fit**: fits a **HSSM** DDM with drift \(v\) regressed on coherence (`stim_level`, proportion).
 """
     )
-    mo.vstack([logo_block, intro], gap=0.75)
+    mo.vstack([logo_block, intro_title, hook_block, intro_body], gap=0.75)
     return
 
 
@@ -328,10 +341,10 @@ def _(
     )
     demo_html = build_jspsych_runner_html(
         demo_timeline,
-        config=coherence_runner_config(),
+        config=coherence_runner_config(title="Motion coherence demo"),
     )
     demo_iframe = mo.Html(
-        render_srcdoc_iframe(demo_html, title="jsPsych Demo", height=520)
+        render_srcdoc_iframe(demo_html, title="Motion coherence demo", height=520)
     )
     mo.vstack(
         [
@@ -339,7 +352,8 @@ def _(
             mo.md(
                 f"_{reps} trials per stim level ({n_motion} motion trials across A, B, C). "
                 "Motion direction is random each trial. "
-                "When you finish, bar charts matching the **Plots** section appear in this window._"
+                "When you finish, the **Plots** section below updates with your results "
+                "(and summary charts also appear in this window)._"
             ),
             demo_trials_per_level,
             demo_iframe,
@@ -424,31 +438,7 @@ def _(mo):
 
     run_sim = mo.ui.run_button(label="Run simulation")
 
-    fit_draws = mo.ui.number(
-        start=100,
-        stop=2000,
-        value=600,
-        step=100,
-        label="HSSM posterior draws (samples)",
-    )
-    fit_tune = mo.ui.number(
-        start=100,
-        stop=2000,
-        value=600,
-        step=100,
-        label="HSSM warmup tune (samples)",
-    )
-    fit_chains = mo.ui.number(
-        start=1,
-        stop=4,
-        value=2,
-        step=1,
-        label="HSSM MCMC chains (count)",
-    )
     return (
-        fit_chains,
-        fit_draws,
-        fit_tune,
         lapse,
         n_observers,
         n_trials,
@@ -491,7 +481,7 @@ def _(
       <code>NAfcObserver</code>: per-alternative evidence is <em>weight × strength + noise</em>,
       with noise increasing as coherence decreases; choices follow a lapse draw or
       <code>argmax</code> on evidence; RT uses non-decision time plus a term inversely related
-      to the evidence margin (or a lapse RT path).</p>
+      to coherence via ``rt_scale × (1 − coherence)`` (or a lapse RT path).</p>
       <p><strong>Output.</strong> Run simulation builds a trial-level table
       (accuracy, RT in s) used by the summary table, plots, and (after fitting) HSSM.</p>
     </div>
@@ -619,43 +609,38 @@ def _(df, mo, summarize_behavior):
 
 
 @app.cell
-def _(by, df, mo):
+def _(
+    behavior_summary_charts,
+    by,
+    demo_df,
+    df,
+    mo,
+    summarize_behavior,
+):
     import altair as alt
 
-    if df.empty:
-        _plots = mo.md("_No simulation plots yet._")
+    sim_has = not df.empty
+    demo_has = not demo_df.empty
+
+    if not sim_has and not demo_has:
+        _plots = mo.md("_No plots yet. Run the simulation or complete the demonstration._")
     else:
-        base = alt.Chart(by)
-        acc_chart = (
-            base.mark_bar()
-            .encode(
-                x=alt.X("stim_level:Q", title="Coherence (proportion)"),
-                y=alt.Y("acc:Q", title="Accuracy (proportion)", scale=alt.Scale(domain=[0, 1])),
-                tooltip=[
-                    alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
-                    alt.Tooltip("acc:Q", title="Accuracy (proportion)", format=".3f"),
-                    alt.Tooltip("n:Q", title="Trials (count)"),
-                    alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
-                ],
+        columns: list[object] = []
+        if sim_has:
+            sim_charts = mo.ui.altair_chart(behavior_summary_charts(by, alt=alt))
+            columns.append(
+                mo.vstack([mo.md("**Simulation**"), sim_charts], gap=0.35, align="center")
             )
-            .properties(width=260, height=220, title="Accuracy by coherence")
-        )
-        rt_chart = (
-            base.mark_bar()
-            .encode(
-                x=alt.X("stim_level:Q", title="Coherence (proportion)"),
-                y=alt.Y("rt_mean:Q", title="Mean RT (s)"),
-                tooltip=[
-                    alt.Tooltip("stim_level:Q", title="Coherence (proportion)", format=".2f"),
-                    alt.Tooltip("rt_mean:Q", title="Mean RT (s)", format=".3f"),
-                    alt.Tooltip("rt_med:Q", title="Median RT (s)", format=".3f"),
-                    alt.Tooltip("n:Q", title="Trials (count)"),
-                ],
+        if demo_has:
+            by_demo = summarize_behavior(demo_df)
+            demo_charts = mo.ui.altair_chart(behavior_summary_charts(by_demo, alt=alt))
+            columns.append(
+                mo.vstack([mo.md("**User Demo Data**"), demo_charts], gap=0.35, align="center")
             )
-            .properties(width=260, height=220, title="Mean RT by coherence")
+        _plots = mo.vstack(
+            [mo.md("### Plots"), mo.hstack(columns, gap=1, align="start")],
+            gap=0.5,
         )
-        chart = mo.ui.altair_chart(alt.hconcat(acc_chart, rt_chart))
-        _plots = mo.vstack([mo.md("### Plots"), chart], gap=0.5)
     _plots
     return
 
@@ -671,18 +656,44 @@ def _(mo):
 
 
 @app.cell
+def _(mo):
+    fit_draws = mo.ui.number(
+        start=100,
+        stop=2000,
+        value=600,
+        step=100,
+        label="HSSM posterior draws (samples)",
+    )
+    fit_tune = mo.ui.number(
+        start=100,
+        stop=2000,
+        value=600,
+        step=100,
+        label="HSSM warmup tune (samples)",
+    )
+    fit_chains = mo.ui.number(
+        start=1,
+        stop=4,
+        value=2,
+        step=1,
+        label="HSSM MCMC chains (count)",
+    )
+    return fit_chains, fit_draws, fit_tune
+
+
+@app.cell
 def _(
     demo_df,
+    df,
     fit_chains,
     fit_draws,
     fit_tune,
     hssm_data_source,
     mo,
-    run_sim,
 ):
     _use_demo = hssm_data_source.value == "Demo"
-    _ready = (not demo_df.empty) if _use_demo else bool(run_sim.value)
-    run_fit = mo.ui.run_button(label="Run HSSM fit", disabled=not _ready)
+    _has_data = not demo_df.empty if _use_demo else not df.empty
+    run_fit = mo.ui.run_button(label="Run HSSM fit", disabled=not _has_data)
     mo.vstack(
         [
             mo.md("### HSSM fitting"),
