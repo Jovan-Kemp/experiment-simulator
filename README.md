@@ -12,14 +12,22 @@ It is organized as a modular workflow that combines:
 
 From this directory:
 
+**Heuristic observer** (noisy evidence + coherence-scaled RT):
+
 ```bash
-uv run marimo run experiments/coherence_demo/coherence_demo.py
+uv run marimo run experiments/coherence_demo/heuristic_coherence_demo.py
 ```
 
-Or open it in the editor:
+**Forward DDM observer** (ssm-simulators, SSM parameters):
 
 ```bash
-uv run marimo edit experiments/coherence_demo/coherence_demo.py
+uv run marimo run experiments/coherence_demo/ssm_coherence_demo.py
+```
+
+Or open in the editor:
+
+```bash
+uv run marimo edit experiments/coherence_demo/ssm_coherence_demo.py
 ```
 
 ### Notes

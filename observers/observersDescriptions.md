@@ -82,3 +82,54 @@ flowchart TD
 
 - Non-lapse RT depends on coherence only, not post-choice evidence
 - Lapse RT has a lower floor of 0.05 s
+
+---
+
+## `DdmObserver` (`ssm_ddm_observer.py`)
+
+Forward DDM observer using **ssm-simulators**: strengths → signed drift → one simulator draw → `(choice_index, rt)`.
+
+### Overview
+
+- **Same surface as** `NAfcObserver`: `choose(stimulus_factors, ndt)` and optional `stimulus_to_strengths`
+- **SSM parameters:** `v_intercept`, `v_scale`, `a`, `z` (plus `lapse_rate`, `lapse_rt_extra`)
+- **`ndt` from the experiment** is passed through as DDM non-decision time `t`
+- **Output:** `(choice_index, rt)` with `choice_index` 0 = lower boundary (left), 1 = upper (right)
+
+### Drift mapping
+
+```text
+signed_evidence = strength[1] - strength[0]   # n > 1
+v_trial = v_intercept + v_scale × signed_evidence
+```
+
+For motion coherence with `motion_stimulus_to_strengths`, positive signed evidence favors the right alternative (upper boundary).
+
+### Flowchart
+
+```mermaid
+flowchart TD
+    F["stimulus_factors"] --> S["stimulus_to_strengths → stim_strengths"]
+    S --> LAP{"random() < lapse_rate?"}
+    LAP -->|yes| L["random choice_index, lapse RT"]
+    LAP -->|no| V["v = v_intercept + v_scale × signed_evidence"]
+    V --> SIM["ssms simulator(model=ddm, theta={v,a,z,t=ndt})"]
+    SIM --> M["choice_index from DDM choice (-1→0, +1→1), rt from simulator"]
+    L --> OUT["(choice_index, rt)"]
+    M --> OUT
+```
+
+### Usage
+
+```python
+from observers.ssm_ddm_observer import DdmObserver
+
+observer = DdmObserver(
+    v_scale=2.5,
+    a=1.2,
+    z=0.5,
+    stimulus_to_strengths=motion_stimulus_to_strengths,
+    rng=rng,
+)
+choice_index, rt = observer.choose(stimulus_factors, ndt=0.3)
+```

@@ -8,5 +8,6 @@ dependencies = [
     "altair>=5.0.0",
     "anywidget>=0.11.0",
     "hssm>=0.3.0",
+    "ssm-simulators>=0.12.2",
     "marimo>=0.21.1",
 ]

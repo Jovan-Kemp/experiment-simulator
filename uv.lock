@@ -1498,6 +1498,7 @@ dependencies = [
     { name = "anywidget" },
     { name = "hssm" },
     { name = "marimo" },
+    { name = "ssm-simulators" },
 ]
 
 [package.metadata]
@@ -1506,6 +1507,7 @@ requires-dist = [
     { name = "anywidget", specifier = ">=0.11.0" },
     { name = "hssm", specifier = ">=0.3.0" },
     { name = "marimo", specifier = ">=0.21.1" },
+    { name = "ssm-simulators", specifier = ">=0.12.2" },
 ]
 
 [[package]]
